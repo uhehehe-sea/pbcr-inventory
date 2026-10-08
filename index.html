@@ -99,8 +99,7 @@
 <section id="gate" hidden>
   <h2>이름을 입력하세요</h2>
   <p>수량을 바꾸면 이 이름으로 기록됩니다. 이 기기에 기억되니 처음 한 번만 입력하면 돼요.</p>
-  <label>이름<input id="nameInput" list="nameList" autocomplete="off" maxlength="30" placeholder="예: 홍길동"></label>
-  <datalist id="nameList"></datalist>
+  <label>이름<input id="nameInput" autocomplete="off" maxlength="30" placeholder="예: 홍길동"></label>
   <div class="err" id="gateErr"></div>
   <button id="gateBtn">시작하기</button>
 </section>
@@ -147,14 +146,10 @@
     clearTimeout(t._h); t._h = setTimeout(() => t.className = '', 2800);
   }
 
-  /* ---------- 첫 진입: 이름 ---------- */
-  async function showGate() {
+  /* ---------- 첫 진입: 이름 (자유 입력, 목록 선택 아님) ---------- */
+  function showGate() {
     $('#gate').hidden = false; $('#main').hidden = true; $('#search').hidden = true;
     $('#gateErr').textContent = ''; $('#nameInput').value = ''; $('#nameInput').focus();
-    try {   // Users 탭 이름을 자동완성 후보로 (목록에 없어도 직접 입력 가능)
-      const d = await api('init');
-      $('#nameList').innerHTML = d.users.map(u => `<option value="${esc(u)}">`).join('');
-    } catch (e) { $('#gateErr').textContent = '서버에 연결하지 못했습니다: ' + e.message; }
   }
   $('#gateBtn').addEventListener('click', () => {
     const n = $('#nameInput').value.trim();

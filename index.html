@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>PBCR 자재 재고</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📦</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<style>
+  :root {
+    --concrete: #E4E6E1; --surface: #F7F8F5; --ink: #1D2422; --muted: #66706C; --line: #C9CEC8;
+    --head: #1D2422; --head-text: #fff; --head-sub: #C9D2CE; --field: #fff;
+    --tag: #F2C230; --tag-ink: #1D2422; --steel: #2F5D7C; --in: #2E7D4F; --out: #B3412E;
+    --sans: 'IBM Plex Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+    --num: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --concrete: #151a19; --surface: #1f2624; --ink: #E6EAE8; --muted: #93A09B; --line: #34403C;
+      --head: #0f1312; --head-sub: #93A09B; --field: #2a3331; --steel: #5B8DB0; --in: #4FA872; --out: #D9654F;
+    }
+  }
+  :root[data-theme="dark"] {
+    --concrete: #151a19; --surface: #1f2624; --ink: #E6EAE8; --muted: #93A09B; --line: #34403C;
+    --head: #0f1312; --head-sub: #93A09B; --field: #2a3331; --steel: #5B8DB0; --in: #4FA872; --out: #D9654F;
+  }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--concrete); color: var(--ink); font-family: var(--sans); font-size: 16px; line-height: 1.45; }
+  button, input { font: inherit; color: inherit; }
+  :focus-visible { outline: 3px solid var(--steel); outline-offset: 2px; }
+
+  header { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--head); color: var(--head-text); padding: 12px 16px; }
+  .bar { max-width: 760px; margin: 0 auto; display: grid; gap: 10px; }
+  .row1 { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  h1 { margin: 0; font-size: 1.15rem; font-weight: 700; }
+  .who { font-size: .85rem; color: var(--head-sub); text-align: right; }
+  #search { width: 100%; padding: 10px 12px; border-radius: 6px; border: none; background: #fff; color: #1D2422; font-size: 1.05rem; }
+
+  main { max-width: 760px; margin: 0 auto; padding: 12px 12px 96px; }
+  .meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; color: var(--muted); font-size: .85rem; padding: 4px 4px 10px; }
+  .meta button { background: none; border: none; color: var(--steel); text-decoration: underline; cursor: pointer; padding: 0; margin-left: 12px; }
+  .meta button:disabled { opacity: .5; cursor: default; }
+
+  .item { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; background: var(--surface); border-bottom: 1px solid var(--line); padding: 12px; }
+  .item:first-child { border-radius: 8px 8px 0 0; }
+  .item:last-child { border-radius: 0 0 8px 8px; border-bottom: none; }
+  .item:only-child { border-radius: 8px; }
+  .loc { min-width: 64px; padding: 6px 8px; text-align: center; background: var(--tag); color: var(--tag-ink); font-family: var(--num); font-weight: 700; font-size: 1.3rem; line-height: 1; border-left: 4px solid #1D2422; overflow-wrap: anywhere; max-width: 96px; }
+  .loc.none { background: transparent; border: 2px dashed var(--line); color: var(--muted); font-size: 1rem; }
+  .info { min-width: 0; cursor: pointer; }
+  .code { font-family: var(--num); font-weight: 600; font-size: 1rem; color: var(--muted); letter-spacing: .02em; line-height: 1.1; }
+  .code b { font-weight: 700; font-size: 1.6rem; color: var(--ink); }
+  .name { font-weight: 500; overflow-wrap: anywhere; }
+  .sub { color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; }
+  .sub .multi { color: var(--steel); font-weight: 500; }
+  .sub .flag { color: var(--out); }
+  .qty { font-family: var(--num); font-weight: 700; font-size: 2rem; line-height: 1; text-align: right; min-width: 56px; cursor: pointer; }
+  .qty small { display: block; font-family: var(--sans); font-weight: 400; font-size: .72rem; color: var(--muted); }
+  .qty.zero { color: var(--out); }
+
+  .edit { grid-column: 1 / -1; display: none; gap: 8px; align-items: center; padding-top: 4px; flex-wrap: wrap; }
+  .item.open .edit { display: flex; }
+  .step { width: 48px; height: 48px; border-radius: 6px; border: none; font-size: 1.5rem; font-weight: 700; color: #fff; cursor: pointer; }
+  .step.minus { background: var(--out); } .step.plus { background: var(--in); }
+  .delta { width: 72px; height: 48px; text-align: center; border: 2px solid var(--line); border-radius: 6px; font-family: var(--num); font-size: 1.5rem; font-weight: 700; background: var(--field); }
+  .delta.neg { color: var(--out); border-color: var(--out); } .delta.pos { color: var(--in); border-color: var(--in); }
+  .note { flex: 1 1 140px; height: 48px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); }
+  .confirm { height: 48px; padding: 0 18px; border: none; border-radius: 6px; background: var(--steel); color: #fff; font-weight: 700; cursor: pointer; }
+  .confirm:disabled { opacity: .45; cursor: not-allowed; }
+  .preview { width: 100%; font-size: .85rem; color: var(--muted); }
+  .readonly .edit { display: none !important; }
+
+  .empty { text-align: center; color: var(--muted); padding: 40px 16px; background: var(--surface); border-radius: 8px; }
+  #logs { display: none; margin-top: 20px; } #logs.show { display: block; }
+  #logs h2 { font-size: 1rem; margin: 0 4px 8px; }
+  .log { display: grid; grid-template-columns: 84px 1fr auto; gap: 8px; padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: .88rem; }
+  .log .chg { font-family: var(--num); font-weight: 700; font-size: 1.1rem; }
+  .log .chg.neg { color: var(--out); } .log .chg.pos { color: var(--in); }
+  .log .t { color: var(--muted); }
+
+  #toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 160%); background: #1D2422; color: #fff; padding: 12px 18px; border-radius: 6px; max-width: 90vw; transition: transform .25s ease; z-index: 10; }
+  #toast.show { transform: translate(-50%, 0); } #toast.err { background: #B3412E; }
+  @media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
+<header>
+  <div class="bar">
+    <div class="row1"><h1>PBCR 자재 재고</h1><span class="who" id="who"></span></div>
+    <input id="search" type="search" placeholder="코드 뒤 4자리 (예: 1811), 이름, 위치" autocomplete="off" enterkeyhint="search" hidden>
+  </div>
+</header>
+
+<section id="gate" hidden>
+  <h2>이름을 입력하세요</h2>
+  <p>수량을 바꾸면 이 이름으로 기록됩니다. 이 기기에 기억되니 처음 한 번만 입력하면 돼요.</p>
+  <label>이름<input id="nameInput" list="nameList" autocomplete="off" maxlength="30" placeholder="예: 홍길동"></label>
+  <datalist id="nameList"></datalist>
+  <div class="err" id="gateErr"></div>
+  <button id="gateBtn">시작하기</button>
+</section>
+
+<main id="main" hidden>
+  <div class="meta">
+    <span id="count">불러오는 중…</span>
+    <span><button id="exportXlsx">엑셀 다운로드</button><button id="refresh">새로고침</button><button id="toggleLogs">최근 기록 보기</button></span>
+  </div>
+  <div id="list"></div>
+  <section id="logs"><h2>최근 기록</h2><div id="logList"></div></section>
+</main>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+  /* ▼▼ 앱스 스크립트 배포 후 받은 웹 앱 주소를 여기에 붙여넣으세요 ▼▼ */
+  const API_URL = 'https://script.google.com/macros/s/여기에_배포_ID/exec';
+  /* ▲▲▲▲ */
+
+  const $ = s => document.querySelector(s);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const store = {
+    get: k => { try { return localStorage.getItem('pbcr_' + k) || ''; } catch (_) { return ''; } },
+    set: (k, v) => { try { localStorage.setItem('pbcr_' + k, v); } catch (_) {} },
+    del: k => { try { localStorage.removeItem('pbcr_' + k); } catch (_) {} }
+  };
+
+  let user = store.get('user');
+  let items = [], logs = [], openId = null, busy = false; const deltas = {};
+
+  async function api(action, body) {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(Object.assign({ action }, body || {}))
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || '요청 실패');
+    return data;
+  }
+
+  function toast(msg, isErr) {
+    const t = $('#toast'); t.textContent = msg; t.className = 'show' + (isErr ? ' err' : '');
+    clearTimeout(t._h); t._h = setTimeout(() => t.className = '', 2800);
+  }
+
+  /* ---------- 첫 진입: 이름 ---------- */
+  async function showGate() {
+    $('#gate').hidden = false; $('#main').hidden = true; $('#search').hidden = true;
+    $('#gateErr').textContent = ''; $('#nameInput').value = ''; $('#nameInput').focus();
+    try {   // Users 탭 이름을 자동완성 후보로 (목록에 없어도 직접 입력 가능)
+      const d = await api('init');
+      $('#nameList').innerHTML = d.users.map(u => `<option value="${esc(u)}">`).join('');
+    } catch (e) { $('#gateErr').textContent = '서버에 연결하지 못했습니다: ' + e.message; }
+  }
+  $('#gateBtn').addEventListener('click', () => {
+    const n = $('#nameInput').value.trim();
+    if (!n) { $('#gateErr').textContent = '이름을 입력하세요.'; return; }
+    user = n; store.set('user', user); start();
+  });
+  $('#nameInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('#gateBtn').click(); });
+
+  function start() {
+    $('#gate').hidden = true; $('#main').hidden = false; $('#search').hidden = false;
+    $('#who').innerHTML = `작업자: ${esc(user)}<button id="logout">변경</button>`;
+    $('#logout').onclick = () => { store.del('user'); user = ''; $('#who').textContent = ''; showGate(); };
+    load();
+  }
+
+  // 이미지: 드라이브 파일 ID → 썸네일 주소 (첫 주소가 안 뜨면 대체 주소로)
+  const imgUrl = (id, w) => `https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w${w}`;
+  const imgAlt = (id, w) => `https://lh3.googleusercontent.com/d/${encodeURIComponent(id)}=w${w}`;
+  const CONF = {
+    '정확모델': ['정확', '같은 품번의 제품 사진'],
+    '동일타입 대표': ['유사', '같은 시리즈 대표 사진, 사이즈·재질·옵션은 다를 수 있음'],
+    '일반 대표이미지': ['참고', '표준품의 일반적인 모양, 참고용'],
+    '실물사진': ['실물', '창고에서 찍은 실제 사진']
+  };
+  const confOf = c => CONF[c] || (c ? [c.slice(0, 2), c] : ['', '']);
+  window.imgFallback = el => { if (!el.dataset.alt) { el.dataset.alt = 1; el.src = imgAlt(el.dataset.id, el.dataset.w); } else { el.closest('.thumb, .photo')?.classList.add('broken'); el.remove(); } };
+
+  function render() {
+    const q = $('#search').value.trim().toLowerCase();
+    const list = items.filter(i => matches(i, q));
+    if (/^\d{4}$/.test(q) && list.length === 1) openId = list[0].rid;
+    $('#count').textContent = `품목 ${list.length}개` + (q ? ` / 전체 ${items.length}개` : '');
+    if (!items.length) { $('#list').innerHTML = '<div class="empty">Items 시트에 품목을 추가하면 여기에 나타납니다.</div>'; return; }
+    if (!list.length) { $('#list').innerHTML = '<div class="empty">일치하는 코드가 없습니다. 숫자를 다시 확인하거나 이름으로 찾아보세요.</div>'; return; }
+    const byCode = {};
+    items.forEach(i => (byCode[i.code] = byCode[i.code] || []).push(i));
+    $('#list').innerHTML = list.map(i => {
+      const d = deltas[i.rid] || 0, same = byCode[i.code] || [];
+      const multi = same.length > 1 ? `<span class="multi">같은 코드 ${same.length}곳, 합계 ${same.reduce((a, x) => a + x.qty, 0)}개</span><br>` : '';
+      const meta = [i.order, i.batch].filter(Boolean).join(', ');
+      return `
+      <div class="item ${openId === i.rid ? 'open' : ''}" data-id="${esc(i.rid)}">
+        <div class="loc ${i.location ? '' : 'none'}">${esc(i.location || '미정')}</div>
+        ${i.img
+          ? `<div class="thumb" data-act="open"><img loading="lazy" alt="" data-id="${esc(i.img)}" data-w="120" src="${imgUrl(i.img, 120)}" onerror="imgFallback(this)">${confOf(i.conf)[0] ? `<span class="tag">${esc(confOf(i.conf)[0])}</span>` : ''}</div>`
+          : `<div class="thumb none" data-act="open">사진<br>없음</div>`}
+        <div class="info" role="button" tabindex="0" data-act="open" aria-expanded="${openId === i.rid}">
+          <div class="code">${codeHtml(i.code)}</div>
+          <div class="name">${esc(i.name)}</div>
+          <div class="sub">${multi}${esc(meta)}${i.memo ? `<br><span class="${/실물 없음|확인 필요/.test(i.memo) ? 'flag' : ''}">${esc(i.memo)}</span>` : ''}</div>
+        </div>
+        <div class="qty ${i.qty === 0 ? 'zero' : ''}" data-act="open">${i.qty}<small>개</small></div>
+        <div class="edit">
+  /* ---------- 조작 ---------- */
+  function setDelta(id, v) {
+    const keep = document.querySelector(`.item[data-id="${CSS.escape(id)}"] .note`)?.value || '';
+    deltas[id] = Number.isFinite(v) ? Math.trunc(v) : 0; render();
+    const n = document.querySelector(`.item[data-id="${CSS.escape(id)}"] .note`); if (n) n.value = keep;
+  }
+  $('#list').addEventListener('click', e => {
+    const el = e.target.closest('[data-act]'); if (!el) return;
+    const id = el.closest('.item').dataset.id, act = el.dataset.act;
+    if (act === 'open') { openId = openId === id ? null : id; render(); }
+    if (act === 'minus') setDelta(id, (deltas[id] || 0) - 1);
+    if (act === 'plus') setDelta(id, (deltas[id] || 0) + 1);
+    if (act === 'confirm') confirmChange(id, el);
+  /* ---------- 엑셀 다운로드 (원본 RDM_PBCR_Room_Materials_list 양식) ---------- */
+  // 원본 서식: 맑은 고딕 12, 머리글 연두(D7E4BD)·재질/비고 머리글 남색(1F4E78)+흰 글씨,
+  // A~F 얇은 테두리와 차수별 배경색, 위치·REMARK 가운데 정렬
+  function buildWorkbook(d) {
+    const FONT = { name: '맑은 고딕', sz: 12 };
+    const thin = { style: 'thin', color: { rgb: '000000' } };
+    const box = { top: thin, bottom: thin, left: thin, right: thin };
+    const ws = XLSX.utils.aoa_to_sheet(d.total);
+    const nCols = d.total[0].length;
+    for (let r = 0; r < d.total.length; r++) {
+      for (let c = 0; c < nCols; c++) {
+        const ref = XLSX.utils.encode_cell({ r, c });
+        if (!ws[ref]) ws[ref] = { t: 's', v: '' };
+        const st = { font: { ...FONT }, alignment: { vertical: 'center' } };
+        if (r === 0) {
+          st.alignment.horizontal = 'center';
+          if (c === 8) { st.fill = { patternType: 'solid', fgColor: { rgb: '1F4E78' } }; st.font = { ...FONT, bold: true, color: { rgb: 'FFFFFFFF' } }; }
+          else if (c !== 9) st.fill = { patternType: 'solid', fgColor: { rgb: 'D7E4BD' } };
+        } else {
+          if (c <= 5) {
+            st.border = box;
+            const col = (d.colors || [])[r - 1];
+            if (/^[0-9A-F]{6}$/.test(col || '')) st.fill = { patternType: 'solid', fgColor: { rgb: col } };
+          }
+          if (c === 4 || c === 5) st.alignment.horizontal = 'center';
+          if (c === 4) { ws[ref].t = 's'; ws[ref].v = String(ws[ref].v); ws[ref].z = '@'; }
+          if (c >= 10) st.alignment.horizontal = 'center';
+        }
+        ws[ref].s = st;
+      }
+    }
+    ws['!cols'] = [32.6, 13.5, 60.3, 13.5, 20.2, 11.9, 12, 12, 16, 38].concat(Array(Math.max(0, nCols - 10)).fill(14)).map(w => ({ wch: w }));
+    ws['!autofilter'] = { ref: `A1:F${d.total.length}` };
+
+    const wl = XLSX.utils.aoa_to_sheet(d.log);
+    for (let r = 0; r < d.log.length; r++) for (let c = 0; c < 7; c++) {
+      const ref = XLSX.utils.encode_cell({ r, c }); if (!wl[ref]) continue;
+      wl[ref].s = r === 0
+        ? { font: { ...FONT, bold: true }, fill: { patternType: 'solid', fgColor: { rgb: 'D7E4BD' } }, alignment: { horizontal: 'center' }, border: box }
+        : { font: { ...FONT, color: (c === 4 && wl[ref].v < 0) ? { rgb: 'C00000' } : undefined }, border: box };
+    }
+    wl['!cols'] = [17, 14, 13, 45, 8, 12, 40].map(w => ({ wch: w }));
+    if (d.log.length > 1) wl['!autofilter'] = { ref: `A1:G${d.log.length}` };
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Total');
+    XLSX.utils.book_append_sheet(wb, wl, 'Log');
+    return wb;
+  }
+
+  $('#exportXlsx').addEventListener('click', async e => {
+    const btn = e.target;
+    if (typeof XLSX === 'undefined') { toast('엑셀 도구를 불러오지 못했습니다. 새로고침 후 다시 누르세요.', true); return; }
+    btn.disabled = true; btn.textContent = '만드는 중…';
+    try {
+      const d = await api('export');
+      XLSX.writeFile(buildWorkbook(d), `RDM_PBCR_Room_Materials_list_${d.stamp}.xlsx`);
+      toast('엑셀 파일을 내려받았습니다.');
+    } catch (err) { toast('엑셀 만들기 실패: ' + err.message, true); }
+    btn.disabled = false; btn.textContent = '엑셀 다운로드';
+  });
+
+  if (user) start(); else showGate();
+</script>
+</body>
+</html>
+
+  });
+  $('#list').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.dataset.act === 'open') e.target.click(); });
+  $('#list').addEventListener('change', e => { if (e.target.dataset.act === 'delta') setDelta(e.target.closest('.item').dataset.id, Number(e.target.value)); });
+  $('#search').addEventListener('input', () => { openId = null; render(); });
+  $('#refresh').addEventListener('click', load);
+  $('#toggleLogs').addEventListener('click', e => { const s = $('#logs').classList.toggle('show'); e.target.textContent = s ? '최근 기록 닫기' : '최근 기록 보기'; });
+
+  async function confirmChange(rid, btn) {
+    const change = deltas[rid] || 0;
+    const note = btn.closest('.item').querySelector('.note').value.trim();
+    btn.disabled = true; btn.textContent = '저장 중…';
+    try {
+      const r = await api('update', { user, rid, change, note });
+      const it = items.find(i => i.rid === r.rid); if (it) it.qty = r.qty;
+      delete deltas[rid]; openId = null; render();
+      toast(`저장됨: ${r.code} ${change > 0 ? '+' : ''}${change} → ${r.qty}개`);
+      load();
+    } catch (e) {
+      toast(e.message, true); btn.disabled = false; btn.textContent = '확인'; load();
+    }
+  }
+
+          ${i.img ? `<div class="photo"><img loading="lazy" alt="${esc(i.name)}" data-id="${esc(i.img)}" data-w="800" src="${imgUrl(i.img, 800)}" onerror="imgFallback(this)">
+            <div class="cap"><b>${esc(i.conf || '이미지')}</b>${confOf(i.conf)[1] ? ', ' + esc(confOf(i.conf)[1]) : ''}${i.src ? `<br>출처: ${esc(i.src)}` : ''}</div></div>` : ''}
+          <button class="step minus" data-act="minus" aria-label="1개 빼기">−</button>
+          <input class="delta ${d < 0 ? 'neg' : d > 0 ? 'pos' : ''}" type="number" inputmode="numeric" value="${d}" data-act="delta" aria-label="변동 수량">
+          <button class="step plus" data-act="plus" aria-label="1개 더하기">+</button>
+          <input class="note" placeholder="메모 (현장, 용도 등)" data-act="note">
+          <button class="confirm" data-act="confirm" ${d === 0 ? 'disabled' : ''}>확인</button>
+          <div class="preview">${d === 0 ? '− 반출, + 입고' : `${i.qty} → ${i.qty + d}개`}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderLogs() {
+    $('#logList').innerHTML = logs.length ? logs.map(l => `
+      <div class="log">
+        <span class="t">${esc(l.time)}</span>
+        <span>${esc(l.user)}, ${esc(l.code)} ${esc(l.name)}${l.note ? ' (' + esc(l.note) + ')' : ''}</span>
+        <span class="chg ${l.change < 0 ? 'neg' : 'pos'}">${l.change > 0 ? '+' : ''}${l.change}</span>
+      </div>`).join('') : '<div class="empty">아직 기록이 없습니다.</div>';
+  }
+
+  async function load() {
+    if (busy) return; busy = true;
+    try { const d = await api('items'); items = d.items; logs = d.logs; render(); renderLogs(); }
+    catch (e) { $('#count').textContent = ''; toast('불러오기 실패: ' + e.message, true); }
+    busy = false;
+  }
+  // 다른 사람이 바꾼 수량을 반영: 앱으로 돌아올 때와 1분마다 (조작 중이 아닐 때만)
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && user && !openId) load(); });
+  setInterval(() => { if (!document.hidden && user && !openId) load(); }, 60000);
+
+  /* ---------- 검색과 화면 ---------- */
+  const last4 = c => String(c).replace(/\D/g, '').slice(-4);
+  function matches(i, q) {
+    if (!q) return true;
+    if (/^\d{1,4}$/.test(q)) return last4(i.code).startsWith(q);
+    return [i.code, i.name, i.location, i.order, i.batch].join(' ').toLowerCase().includes(q);
+  }
+  function codeHtml(code) {
+    const m = String(code).match(/^(.*?)(\d{4})$/);
+    return m ? `${esc(m[1])}<b>${esc(m[2])}</b>` : `<b>${esc(code)}</b>`;
+  }
+
+  #gate { max-width: 420px; margin: 40px auto; padding: 24px; background: var(--surface); border-radius: 8px; display: grid; gap: 14px; }
+  #gate h2 { margin: 0; font-size: 1.1rem; }
+  #gate p { margin: 0; color: var(--muted); font-size: .9rem; }
+  #gate label { display: grid; gap: 6px; font-size: .9rem; }
+  #gate input, #gate select { height: 48px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); font-size: 1.05rem; }
+  #gate button { height: 48px; border: none; border-radius: 6px; background: var(--steel); color: #fff; font-weight: 700; cursor: pointer; }
+  #gate button:disabled { opacity: .5; }
+  #gate .err { color: var(--out); font-size: .9rem; min-height: 1.2em; }
+  .who button { background: none; border: none; color: var(--head-sub); text-decoration: underline; cursor: pointer; padding: 0; margin-left: 6px; font-size: .85rem; }
+  [hidden] { display: none !important; }
+  .item { grid-template-columns: auto 52px 1fr auto; }
+  .thumb { width: 52px; height: 52px; border-radius: 6px; background: var(--field); border: 1px solid var(--line); overflow: hidden; display: grid; place-items: center; cursor: pointer; position: relative; }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumb.none { border-style: dashed; color: var(--muted); font-size: .68rem; text-align: center; line-height: 1.2; }
+  .thumb .tag { position: absolute; left: 0; right: 0; bottom: 0; font-size: .6rem; text-align: center; color: #fff; background: rgba(29,36,34,.72); line-height: 1.5; }
+  .photo { width: 100%; display: none; gap: 6px; }
+  .item.open .photo { display: grid; }
+  .photo img { width: 100%; max-height: 320px; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 6px; }
+  .photo .cap { font-size: .8rem; color: var(--muted); }
+  .photo .cap b { color: var(--ink); font-weight: 500; }
+</style>
+</head>
+<body>

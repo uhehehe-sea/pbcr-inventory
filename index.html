@@ -169,6 +169,7 @@
   <section id="logs"><h2>최근 기록</h2><div id="logList"></div></section>
 </main>
 <div id="toast" role="status" aria-live="polite"></div>
+<input type="file" id="imgFile" accept="image/*" hidden>
 
 <div id="itemModal" hidden>
   <div class="modal-box">
@@ -333,7 +334,7 @@
           <button class="confirm" data-act="confirm" ${d === 0 ? 'disabled' : ''}>확인</button>
           <div class="preview">${d === 0 ? '− 반출, + 입고' : `${i.qty} → ${i.qty + d}개`}</div>
           ${i.createdAt ? `<div class="sub">등록: ${esc(i.createdAt)}</div>` : ''}
-          <div class="rowbtns"><button data-act="edit">정보 수정</button><button class="danger" data-act="del">삭제</button></div>
+          <div class="rowbtns"><button data-act="edit">정보 수정</button><button class="danger" data-act="del">삭제</button>${i.img ? '' : '<button data-act="upload">📷 사진 업로드</button>'}</div>
         </div>
       </div>`;
     }).join('');
@@ -363,6 +364,7 @@
     if (act === 'confirm') confirmChange(id, el);
     if (act === 'edit') openModal(id);
     if (act === 'del') deleteItem(id);
+    if (act === 'upload') { uploadRid = id; $('#imgFile').click(); }
   });
   $('#list').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.dataset.act === 'open') e.target.click(); });
   $('#list').addEventListener('change', e => { if (e.target.dataset.act === 'delta') setDelta(e.target.closest('.item').dataset.id, Number(e.target.value)); });
@@ -455,6 +457,44 @@
       toast('삭제되었습니다.'); load();
     } catch (e) { toast(e.message, true); }
   }
+
+  /* ---------- 사진 업로드 ---------- */
+  let uploadRid = null;
+  function resizeImage(file) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(img.src);
+        const max = 1200;
+        let w = img.width, h = img.height;
+        if (w > max || h > max) { const r = Math.min(max / w, max / h); w = Math.round(w * r); h = Math.round(h * r); }
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        c.toBlob(b => {
+          if (!b) { reject(new Error('이미지 변환 실패')); return; }
+          const fr = new FileReader();
+          fr.onload = () => resolve({ data: String(fr.result).split(',')[1], mime: 'image/jpeg' });
+          fr.onerror = () => reject(new Error('이미지 읽기 실패'));
+          fr.readAsDataURL(b);
+        }, 'image/jpeg', 0.82);
+      };
+      img.onerror = () => reject(new Error('이미지를 열 수 없습니다.'));
+      img.src = URL.createObjectURL(file);
+    });
+  }
+  $('#imgFile').addEventListener('change', async e => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f || !uploadRid) return;
+    const it = items.find(i => i.rid === uploadRid); uploadRid = null;
+    if (!it) return;
+    toast('사진 업로드 중…');
+    try {
+      const { data, mime } = await resizeImage(f);
+      await api('uploadImage', { user, code: it.code, image: data, mime });
+      toast('사진이 등록되었습니다.'); load();
+    } catch (err) { toast('업로드 실패: ' + err.message, true); }
+  });
 
   async function confirmChange(rid, btn) {
     const change = deltas[rid] || 0;

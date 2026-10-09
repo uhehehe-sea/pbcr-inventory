@@ -134,7 +134,11 @@
   .gal-info .code { font-weight: 600; }
   .gal-info .name { margin: 4px 0; }
   .loc-big { font-size: 1.2rem; font-weight: 700; margin: 8px 0; }
-</style>
+  .batchHead { display: flex; align-items: baseline; gap: 10px; margin: 18px 2px 6px; padding-bottom: 4px; border-bottom: 2px solid var(--ink); }
+  .batchHead:first-child { margin-top: 4px; }
+  .batchHead b { font-family: var(--num); font-size: 1.35rem; font-weight: 600; }
+  .batchHead span { color: var(--muted); font-size: .85rem; }
+  </style>
 </head>
 <body>
 <header>
@@ -162,6 +166,7 @@
       <option value="recent">최근 등록순</option>
       <option value="qtyDesc">수량 많은순</option>
       <option value="qtyAsc">수량 적은순</option>
+      <option value="batch">항차별</option>
     </select><button id="addBtn">＋ 새 품목</button><button id="galleryBtn">갤러리</button><button id="exportXlsx">엑셀 다운로드</button><button id="refresh">새로고침</button><button id="toggleLogs">최근 기록 보기</button></span>
   </div>
   <div id="list"></div>
@@ -288,6 +293,8 @@
   const confOf = c => CONF[c] || (c ? [c.slice(0, 2), c] : ['', '']);
   window.imgFallback = el => { if (!el.dataset.alt) { el.dataset.alt = 1; el.src = imgAlt(el.dataset.id, el.dataset.w); } else { el.closest('.thumb, .photo')?.classList.add('broken'); el.remove(); } };
 
+  const batchNo = b => { const m = String(b || '').match(/\d+/); return m ? Number(m[0]) : -1; };
+  
   function render() {
     const q = $('#search').value.trim().toLowerCase();
     const list = items.filter(i => matches(i, q));
@@ -299,6 +306,7 @@
         case 'recent': return (b.createdAt || '').localeCompare(a.createdAt || '');
         case 'qtyDesc': return b.qty - a.qty;
         case 'qtyAsc': return a.qty - b.qty;
+          case 'batch': return (batchNo(b.batch) - batchNo(a.batch)) || a.rid.localeCompare(b.rid);
         default: return a.rid.localeCompare(b.rid);
       }
     });
@@ -308,11 +316,20 @@
     if (!list.length) { $('#list').innerHTML = '<div class="empty">일치하는 코드가 없습니다. 숫자를 다시 확인하거나 이름으로 찾아보세요.</div>'; return; }
     const byCode = {};
     items.forEach(i => (byCode[i.code] = byCode[i.code] || []).push(i));
+    let prevBatch = null;
     $('#list').innerHTML = list.map(i => {
       const d = deltas[i.rid] || 0, same = byCode[i.code] || [];
       const multi = same.length > 1 ? `<span class="multi">같은 코드 ${same.length}곳, 합계 ${same.reduce((a, x) => a + x.qty, 0)}개</span><br>` : '';
       const meta = [i.order, i.batch].filter(Boolean).join(', ');
-      return `
+      let head = '';
+      if (sv === 'batch' && i.batch !== prevBatch) {
+        prevBatch = i.batch;
+        const g = list.filter(x => x.batch === i.batch);
+        head = `<div class="batchHead"><b>${esc(i.batch ? batchNo(i.batch) + '차' : '항차 미기재')}</b><span>품목 ${g.length}개, 재고 합계 ${g.reduce((a, x) => a + x.qty, 0)}개</span></div>`; }
+        }
+      }
+                                    }
+  return head + `
       <div class="item ${openId === i.rid ? 'open' : ''}" data-id="${esc(i.rid)}">
         <div class="loc ${i.location ? '' : 'none'}">${esc(i.location || '미정')}</div>
         ${i.img

@@ -215,7 +215,7 @@
     if (act === 'open') { openId = openId === id ? null : id; render(); }
     if (act === 'minus') setDelta(id, (deltas[id] || 0) - 1);
     if (act === 'plus') setDelta(id, (deltas[id] || 0) + 1);
-    if (act === 'confirm') confirmChange(id, el);
+    if (act === 'confirm') confirmChange(id, el); });
   /* ---------- 엑셀 다운로드 (원본 RDM_PBCR_Room_Materials_list 양식) ---------- */
   // 원본 서식: 맑은 고딕 12, 머리글 연두(D7E4BD)·재질/비고 머리글 남색(1F4E78)+흰 글씨,
   // A~F 얇은 테두리와 차수별 배경색, 위치·REMARK 가운데 정렬
@@ -280,7 +280,7 @@
 
   if (user) start(); else showGate();
 
-  });
+  
   $('#list').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.dataset.act === 'open') e.target.click(); });
   $('#list').addEventListener('change', e => { if (e.target.dataset.act === 'delta') setDelta(e.target.closest('.item').dataset.id, Number(e.target.value)); });
   $('#search').addEventListener('input', () => { openId = null; render(); });

@@ -278,7 +278,7 @@
 
   async function load() {
     if (busy) return; busy = true;
-    try { const d = await api('items'); items = d.items; logs = d.logs; render(); renderLogs(); }
+    try { const d = await api('items'); items = d.items || []; logs = d.logs || []; render(); renderLogs(); }
     catch (e) { $('#count').textContent = ''; toast('불러오기 실패: ' + e.message, true); }
     busy = false;
   }
@@ -362,7 +362,7 @@
         <div class="edit">
           ${i.img ? `<div class="photo"><img loading="lazy" alt="${esc(i.name)}" data-id="${esc(i.img)}" data-w="800" src="${imgUrl(i.img, 800)}" onerror="imgFallback(this)">
             <div class="cap"><b>${esc(i.conf || '이미지')}</b>${confOf(i.conf)[1] ? ', ' + esc(confOf(i.conf)[1]) : ''}${i.src ? `<br>출처: ${esc(i.src)}` : ''}</div></div>` : ''}
-          <div class="modetoggle" data-act="modetoggle">
+          <div class="modetoggle">
             <button class="${getMode(i.rid) === 'use' ? 'on' : ''}" data-mode="use">사용 개수</button>
             <button class="${getMode(i.rid) === 'left' ? 'on' : ''}" data-mode="left">남은 개수</button>
           </div>
@@ -401,6 +401,13 @@
     const n = document.querySelector(`.item[data-id="${CSS.escape(id)}"] .note`); if (n) n.value = keep;
   }
   $('#list').addEventListener('click', e => {
+    const modeBtn = e.target.closest('[data-mode]');
+    if (modeBtn) {
+      const id = modeBtn.closest('.item').dataset.id;
+      const mode = modeBtn.dataset.mode;
+      inputModes[id] = mode; store.set('inputMode', mode);
+      deltas[id] = 0; render(); return;
+    }
     const el = e.target.closest('[data-act]'); if (!el) return;
     const id = el.closest('.item').dataset.id, act = el.dataset.act;
     if (act === 'open') { openId = openId === id ? null : id; render(); }
@@ -412,11 +419,6 @@
     if (act === 'edit') openModal(id);
     if (act === 'del') deleteItem(id);
     if (act === 'upload') { uploadRid = id; $('#imgFile').click(); }
-    if (el.dataset.mode) {
-      const mode = el.dataset.mode;
-      inputModes[id] = mode; store.set('inputMode', mode);
-      deltas[id] = 0; render();
-    }
   });
   $('#list').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.dataset.act === 'open') e.target.click(); });
   $('#list').addEventListener('change', e => {
@@ -425,8 +427,8 @@
       const it = items.find(x => x.rid === id);
       const v = Number(e.target.value);
       if (getMode(id) === 'left' && it) {
-        // 남은 개수 모드: 입력값은 남은 수량, 0~현재수량 범위
-        const left = Math.max(0, Math.min(it.qty, Math.trunc(v) || 0));
+        // 남은 개수 모드: 입력값은 목표 남은 수량 (0 이상, 현재수량 초과 허용 for 복구)
+        const left = Math.max(0, Math.trunc(v) || 0);
         setDelta(id, left - it.qty);
       } else {
         setDelta(id, v);

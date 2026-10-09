@@ -88,7 +88,31 @@
 
   #toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 160%); background: #1D2422; color: #fff; padding: 12px 18px; border-radius: 6px; max-width: 90vw; transition: transform .25s ease; z-index: 10; }
   #toast.show { transform: translate(-50%, 0); } #toast.err { background: #B3412E; }
-  @media (prefers-reduced-motion: reduce) { #toast { transition: none; } } </style></head><body>
+  @media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
+
+  #gate { max-width: 420px; margin: 40px auto; padding: 24px; background: var(--surface); border-radius: 8px; display: grid; gap: 14px; }
+  #gate h2 { margin: 0; font-size: 1.1rem; }
+  #gate p { margin: 0; color: var(--muted); font-size: .9rem; }
+  #gate label { display: grid; gap: 6px; font-size: .9rem; }
+  #gate input, #gate select { height: 48px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); font-size: 1.05rem; }
+  #gate button { height: 48px; border: none; border-radius: 6px; background: var(--steel); color: #fff; font-weight: 700; cursor: pointer; }
+  #gate button:disabled { opacity: .5; }
+  #gate .err { color: var(--out); font-size: .9rem; min-height: 1.2em; }
+  .who button { background: none; border: none; color: var(--head-sub); text-decoration: underline; cursor: pointer; padding: 0; margin-left: 6px; font-size: .85rem; }
+  [hidden] { display: none !important; }
+  .item { grid-template-columns: auto 52px 1fr auto; }
+  .thumb { width: 52px; height: 52px; border-radius: 6px; background: var(--field); border: 1px solid var(--line); overflow: hidden; display: grid; place-items: center; cursor: pointer; position: relative; }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumb.none { border-style: dashed; color: var(--muted); font-size: .68rem; text-align: center; line-height: 1.2; }
+  .thumb .tag { position: absolute; left: 0; right: 0; bottom: 0; font-size: .6rem; text-align: center; color: #fff; background: rgba(29,36,34,.72); line-height: 1.5; }
+  .photo { width: 100%; display: none; gap: 6px; }
+  .item.open .photo { display: grid; }
+  .photo img { width: 100%; max-height: 320px; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 6px; }
+  .photo .cap { font-size: .8rem; color: var(--muted); }
+  .photo .cap b { color: var(--ink); font-weight: 500; }
+</style>
+</head>
+<body>
 <header>
   <div class="bar">
     <div class="row1"><h1>PBCR 자재 재고</h1><span class="who" id="who"></span></div>
@@ -165,6 +189,28 @@
     load();
   }
 
+  async function load() {
+    if (busy) return; busy = true;
+    try { const d = await api('items'); items = d.items; logs = d.logs; render(); renderLogs(); }
+    catch (e) { $('#count').textContent = ''; toast('불러오기 실패: ' + e.message, true); }
+    busy = false;
+  }
+  // 다른 사람이 바꾼 수량을 반영: 앱으로 돌아올 때와 1분마다 (조작 중이 아닐 때만)
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && user && !openId) load(); });
+  setInterval(() => { if (!document.hidden && user && !openId) load(); }, 60000);
+
+  /* ---------- 검색과 화면 ---------- */
+  const last4 = c => String(c).replace(/\D/g, '').slice(-4);
+  function matches(i, q) {
+    if (!q) return true;
+    if (/^\d{1,4}$/.test(q)) return last4(i.code).startsWith(q);
+    return [i.code, i.name, i.location, i.order, i.batch].join(' ').toLowerCase().includes(q);
+  }
+  function codeHtml(code) {
+    const m = String(code).match(/^(.*?)(\d{4})$/);
+    return m ? `${esc(m[1])}<b>${esc(m[2])}</b>` : `<b>${esc(code)}</b>`;
+  }
+
   // 이미지: 드라이브 파일 ID → 썸네일 주소 (첫 주소가 안 뜨면 대체 주소로)
   const imgUrl = (id, w) => `https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w${w}`;
   const imgAlt = (id, w) => `https://lh3.googleusercontent.com/d/${encodeURIComponent(id)}=w${w}`;
@@ -203,6 +249,28 @@
         </div>
         <div class="qty ${i.qty === 0 ? 'zero' : ''}" data-act="open">${i.qty}<small>개</small></div>
         <div class="edit">
+          ${i.img ? `<div class="photo"><img loading="lazy" alt="${esc(i.name)}" data-id="${esc(i.img)}" data-w="800" src="${imgUrl(i.img, 800)}" onerror="imgFallback(this)">
+            <div class="cap"><b>${esc(i.conf || '이미지')}</b>${confOf(i.conf)[1] ? ', ' + esc(confOf(i.conf)[1]) : ''}${i.src ? `<br>출처: ${esc(i.src)}` : ''}</div></div>` : ''}
+          <button class="step minus" data-act="minus" aria-label="1개 빼기">−</button>
+          <input class="delta ${d < 0 ? 'neg' : d > 0 ? 'pos' : ''}" type="number" inputmode="numeric" value="${d}" data-act="delta" aria-label="변동 수량">
+          <button class="step plus" data-act="plus" aria-label="1개 더하기">+</button>
+          <input class="note" placeholder="메모 (현장, 용도 등)" data-act="note">
+          <button class="confirm" data-act="confirm" ${d === 0 ? 'disabled' : ''}>확인</button>
+          <div class="preview">${d === 0 ? '− 반출, + 입고' : `${i.qty} → ${i.qty + d}개`}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderLogs() {
+    $('#logList').innerHTML = logs.length ? logs.map(l => `
+      <div class="log">
+        <span class="t">${esc(l.time)}</span>
+        <span>${esc(l.user)}, ${esc(l.code)} ${esc(l.name)}${l.note ? ' (' + esc(l.note) + ')' : ''}</span>
+        <span class="chg ${l.change < 0 ? 'neg' : 'pos'}">${l.change > 0 ? '+' : ''}${l.change}</span>
+      </div>`).join('') : '<div class="empty">아직 기록이 없습니다.</div>';
+  }
+
   /* ---------- 조작 ---------- */
   function setDelta(id, v) {
     const keep = document.querySelector(`.item[data-id="${CSS.escape(id)}"] .note`)?.value || '';
@@ -215,7 +283,29 @@
     if (act === 'open') { openId = openId === id ? null : id; render(); }
     if (act === 'minus') setDelta(id, (deltas[id] || 0) - 1);
     if (act === 'plus') setDelta(id, (deltas[id] || 0) + 1);
-    if (act === 'confirm') confirmChange(id, el); });
+    if (act === 'confirm') confirmChange(id, el);
+  });
+  $('#list').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.dataset.act === 'open') e.target.click(); });
+  $('#list').addEventListener('change', e => { if (e.target.dataset.act === 'delta') setDelta(e.target.closest('.item').dataset.id, Number(e.target.value)); });
+  $('#search').addEventListener('input', () => { openId = null; render(); });
+  $('#refresh').addEventListener('click', load);
+  $('#toggleLogs').addEventListener('click', e => { const s = $('#logs').classList.toggle('show'); e.target.textContent = s ? '최근 기록 닫기' : '최근 기록 보기'; });
+
+  async function confirmChange(rid, btn) {
+    const change = deltas[rid] || 0;
+    const note = btn.closest('.item').querySelector('.note').value.trim();
+    btn.disabled = true; btn.textContent = '저장 중…';
+    try {
+      const r = await api('update', { user, rid, change, note });
+      const it = items.find(i => i.rid === r.rid); if (it) it.qty = r.qty;
+      delete deltas[rid]; openId = null; render();
+      toast(`저장됨: ${r.code} ${change > 0 ? '+' : ''}${change} → ${r.qty}개`);
+      load();
+    } catch (e) {
+      toast(e.message, true); btn.disabled = false; btn.textContent = '확인'; load();
+    }
+  }
+
   /* ---------- 엑셀 다운로드 (원본 RDM_PBCR_Room_Materials_list 양식) ---------- */
   // 원본 서식: 맑은 고딕 12, 머리글 연두(D7E4BD)·재질/비고 머리글 남색(1F4E78)+흰 글씨,
   // A~F 얇은 테두리와 차수별 배경색, 위치·REMARK 가운데 정렬
@@ -279,93 +369,6 @@
   });
 
   if (user) start(); else showGate();
-
-  
-  $('#list').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.dataset.act === 'open') e.target.click(); });
-  $('#list').addEventListener('change', e => { if (e.target.dataset.act === 'delta') setDelta(e.target.closest('.item').dataset.id, Number(e.target.value)); });
-  $('#search').addEventListener('input', () => { openId = null; render(); });
-  $('#refresh').addEventListener('click', load);
-  $('#toggleLogs').addEventListener('click', e => { const s = $('#logs').classList.toggle('show'); e.target.textContent = s ? '최근 기록 닫기' : '최근 기록 보기'; });
-
-  async function confirmChange(rid, btn) {
-    const change = deltas[rid] || 0;
-    const note = btn.closest('.item').querySelector('.note').value.trim();
-    btn.disabled = true; btn.textContent = '저장 중…';
-    try {
-      const r = await api('update', { user, rid, change, note });
-      const it = items.find(i => i.rid === r.rid); if (it) it.qty = r.qty;
-      delete deltas[rid]; openId = null; render();
-      toast(`저장됨: ${r.code} ${change > 0 ? '+' : ''}${change} → ${r.qty}개`);
-      load();
-    } catch (e) {
-      toast(e.message, true); btn.disabled = false; btn.textContent = '확인'; load();
-    }
-  }
-
-          ${i.img ? `<div class="photo"><img loading="lazy" alt="${esc(i.name)}" data-id="${esc(i.img)}" data-w="800" src="${imgUrl(i.img, 800)}" onerror="imgFallback(this)">
-            <div class="cap"><b>${esc(i.conf || '이미지')}</b>${confOf(i.conf)[1] ? ', ' + esc(confOf(i.conf)[1]) : ''}${i.src ? `<br>출처: ${esc(i.src)}` : ''}</div></div>` : ''}
-          <button class="step minus" data-act="minus" aria-label="1개 빼기">−</button>
-          <input class="delta ${d < 0 ? 'neg' : d > 0 ? 'pos' : ''}" type="number" inputmode="numeric" value="${d}" data-act="delta" aria-label="변동 수량">
-          <button class="step plus" data-act="plus" aria-label="1개 더하기">+</button>
-          <input class="note" placeholder="메모 (현장, 용도 등)" data-act="note">
-          <button class="confirm" data-act="confirm" ${d === 0 ? 'disabled' : ''}>확인</button>
-          <div class="preview">${d === 0 ? '− 반출, + 입고' : `${i.qty} → ${i.qty + d}개`}</div>
-        </div>
-      </div>`;
-    }).join('');
-  }
-
-  function renderLogs() {
-    $('#logList').innerHTML = logs.length ? logs.map(l => `
-      <div class="log">
-        <span class="t">${esc(l.time)}</span>
-        <span>${esc(l.user)}, ${esc(l.code)} ${esc(l.name)}${l.note ? ' (' + esc(l.note) + ')' : ''}</span>
-        <span class="chg ${l.change < 0 ? 'neg' : 'pos'}">${l.change > 0 ? '+' : ''}${l.change}</span>
-      </div>`).join('') : '<div class="empty">아직 기록이 없습니다.</div>';
-  }
-
-  async function load() {
-    if (busy) return; busy = true;
-    try { const d = await api('items'); items = d.items; logs = d.logs; render(); renderLogs(); }
-    catch (e) { $('#count').textContent = ''; toast('불러오기 실패: ' + e.message, true); }
-    busy = false;
-  }
-  // 다른 사람이 바꾼 수량을 반영: 앱으로 돌아올 때와 1분마다 (조작 중이 아닐 때만)
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && user && !openId) load(); });
-  setInterval(() => { if (!document.hidden && user && !openId) load(); }, 60000);
-
-  /* ---------- 검색과 화면 ---------- */
-  const last4 = c => String(c).replace(/\D/g, '').slice(-4);
-  function matches(i, q) {
-    if (!q) return true;
-    if (/^\d{1,4}$/.test(q)) return last4(i.code).startsWith(q);
-    return [i.code, i.name, i.location, i.order, i.batch].join(' ').toLowerCase().includes(q);
-  }
-  function codeHtml(code) {
-    const m = String(code).match(/^(.*?)(\d{4})$/);
-    return m ? `${esc(m[1])}<b>${esc(m[2])}</b>` : `<b>${esc(code)}</b>`;
-  }
-
-  </script><style> #gate { max-width: 420px; margin: 40px auto; padding: 24px; background: var(--surface); border-radius: 8px; display: grid; gap: 14px; }
-  #gate h2 { margin: 0; font-size: 1.1rem; }
-  #gate p { margin: 0; color: var(--muted); font-size: .9rem; }
-  #gate label { display: grid; gap: 6px; font-size: .9rem; }
-  #gate input, #gate select { height: 48px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); font-size: 1.05rem; }
-  #gate button { height: 48px; border: none; border-radius: 6px; background: var(--steel); color: #fff; font-weight: 700; cursor: pointer; }
-  #gate button:disabled { opacity: .5; }
-  #gate .err { color: var(--out); font-size: .9rem; min-height: 1.2em; }
-  .who button { background: none; border: none; color: var(--head-sub); text-decoration: underline; cursor: pointer; padding: 0; margin-left: 6px; font-size: .85rem; }
-  [hidden] { display: none !important; }
-  .item { grid-template-columns: auto 52px 1fr auto; }
-  .thumb { width: 52px; height: 52px; border-radius: 6px; background: var(--field); border: 1px solid var(--line); overflow: hidden; display: grid; place-items: center; cursor: pointer; position: relative; }
-  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .thumb.none { border-style: dashed; color: var(--muted); font-size: .68rem; text-align: center; line-height: 1.2; }
-  .thumb .tag { position: absolute; left: 0; right: 0; bottom: 0; font-size: .6rem; text-align: center; color: #fff; background: rgba(29,36,34,.72); line-height: 1.5; }
-  .photo { width: 100%; display: none; gap: 6px; }
-  .item.open .photo { display: grid; }
-  .photo img { width: 100%; max-height: 320px; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 6px; }
-  .photo .cap { font-size: .8rem; color: var(--muted); }
-  .photo .cap b { color: var(--ink); font-weight: 500; }
-</style>
-</head>
-<body>
+</script>
+</body>
+</html>

@@ -65,6 +65,20 @@
   .qty { font-family: var(--num); font-weight: 700; font-size: 2rem; line-height: 1; text-align: right; min-width: 56px; cursor: pointer; }
   .qty small { display: block; font-family: var(--sans); font-weight: 400; font-size: .72rem; color: var(--muted); }
   .qty.zero { color: var(--out); }
+  .qty .recv { display: block; font-family: var(--sans); font-weight: 400; font-size: .8rem; color: var(--muted); }
+  .bar { height: 4px; border-radius: 2px; background: var(--line); margin-top: 4px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--in); border-radius: 2px; }
+  .status { display: inline-block; font-size: .72rem; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-top: 4px; }
+  .status.sealed { background: var(--in); color: #fff; }
+  .status.opened { background: var(--steel); color: #fff; }
+  .status.empty { background: var(--out); color: #fff; }
+  .lastout { font-size: .78rem; color: var(--muted); margin-top: 2px; }
+  .quickbtns { display: flex; gap: 6px; width: 100%; }
+  .quickbtns button { flex: 1; height: 40px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-weight: 700; cursor: pointer; }
+  .quickbtns button:active { background: var(--line); }
+  .modetoggle { display: flex; gap: 0; width: 100%; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .modetoggle button { flex: 1; height: 36px; border: none; background: var(--surface); cursor: pointer; font-size: .85rem; }
+  .modetoggle button.on { background: var(--steel); color: #fff; font-weight: 700; }
 
   .edit { grid-column: 1 / -1; display: none; gap: 8px; align-items: center; padding-top: 4px; flex-wrap: wrap; }
   .item.open .edit { display: flex; }
@@ -78,6 +92,10 @@
   .preview { width: 100%; font-size: .85rem; color: var(--muted); }
   .readonly .edit { display: none !important; }
 
+  .batchHead { display: flex; align-items: baseline; gap: 10px; margin: 18px 2px 6px; padding-bottom: 4px; border-bottom: 2px solid var(--ink); }
+  .batchHead:first-child { margin-top: 4px; }
+  .batchHead b { font-family: var(--num); font-size: 1.35rem; font-weight: 600; }
+  .batchHead span { color: var(--muted); font-size: .85rem; }
   .empty { text-align: center; color: var(--muted); padding: 40px 16px; background: var(--surface); border-radius: 8px; }
   #logs { display: none; margin-top: 20px; } #logs.show { display: block; }
   #logs h2 { font-size: 1rem; margin: 0 4px 8px; }
@@ -134,11 +152,7 @@
   .gal-info .code { font-weight: 600; }
   .gal-info .name { margin: 4px 0; }
   .loc-big { font-size: 1.2rem; font-weight: 700; margin: 8px 0; }
-  .batchHead { display: flex; align-items: baseline; gap: 10px; margin: 18px 2px 6px; padding-bottom: 4px; border-bottom: 2px solid var(--ink); }
-  .batchHead:first-child { margin-top: 4px; }
-  .batchHead b { font-family: var(--num); font-size: 1.35rem; font-weight: 600; }
-  .batchHead span { color: var(--muted); font-size: .85rem; }
-  </style>
+</style>
 </head>
 <body>
 <header>
@@ -163,10 +177,10 @@
       <option value="default">기본순</option>
       <option value="name">이름순</option>
       <option value="location">보관장소순</option>
+      <option value="batch">항차별</option>
       <option value="recent">최근 등록순</option>
       <option value="qtyDesc">수량 많은순</option>
       <option value="qtyAsc">수량 적은순</option>
-      <option value="batch">항차별</option>
     </select><button id="addBtn">＋ 새 품목</button><button id="galleryBtn">갤러리</button><button id="exportXlsx">엑셀 다운로드</button><button id="refresh">새로고침</button><button id="toggleLogs">최근 기록 보기</button></span>
   </div>
   <div id="list"></div>
@@ -182,6 +196,7 @@
     <label>SEA-CODE*<input id="f_code" autocomplete="off"></label>
     <label>규격(이름)*<input id="f_name" autocomplete="off"></label>
     <label>수량<input id="f_qty" type="number" inputmode="numeric" value="0"></label>
+    <label>입고수량<input id="f_received" type="number" inputmode="numeric" placeholder="비우면 수량과 같게"></label>
     <label>위치<input id="f_location" autocomplete="off" placeholder="예: 1-1"></label>
     <label>발주번호<input id="f_order" autocomplete="off"></label>
     <label>배치<input id="f_batch" autocomplete="off"></label>
@@ -223,6 +238,8 @@
 
   let user = store.get('user');
   let items = [], logs = [], openId = null, busy = false; const deltas = {};
+  const inputModes = {};  // rid -> 'use' | 'left'
+  const getMode = rid => inputModes[rid] || store.get('inputMode') || 'use';
 
   async function api(action, body) {
     const res = await fetch(API_URL, {
@@ -270,6 +287,7 @@
   setInterval(() => { if (!document.hidden && user && !openId) load(); }, 60000);
 
   /* ---------- 검색과 화면 ---------- */
+  const batchNo = b => { const m = String(b || '').match(/\d+/); return m ? Number(m[0]) : -1; };
   const last4 = c => String(c).replace(/\D/g, '').slice(-4);
   function matches(i, q) {
     if (!q) return true;
@@ -293,8 +311,6 @@
   const confOf = c => CONF[c] || (c ? [c.slice(0, 2), c] : ['', '']);
   window.imgFallback = el => { if (!el.dataset.alt) { el.dataset.alt = 1; el.src = imgAlt(el.dataset.id, el.dataset.w); } else { el.closest('.thumb, .photo')?.classList.add('broken'); el.remove(); } };
 
-  const batchNo = b => { const m = String(b || '').match(/\d+/); return m ? Number(m[0]) : -1; };
-  
   function render() {
     const q = $('#search').value.trim().toLowerCase();
     const list = items.filter(i => matches(i, q));
@@ -302,11 +318,11 @@
     list.sort((a, b) => {
       switch (sv) {
         case 'name': return a.name.localeCompare(b.name, 'ko');
+        case 'batch': return (batchNo(b.batch) - batchNo(a.batch)) || a.rid.localeCompare(b.rid);
         case 'location': return (a.location || '￮').localeCompare(b.location || '￮', 'ko');
         case 'recent': return (b.createdAt || '').localeCompare(a.createdAt || '');
         case 'qtyDesc': return b.qty - a.qty;
         case 'qtyAsc': return a.qty - b.qty;
-          case 'batch': return (batchNo(b.batch) - batchNo(a.batch)) || a.rid.localeCompare(b.rid);
         default: return a.rid.localeCompare(b.rid);
       }
     });
@@ -318,18 +334,20 @@
     items.forEach(i => (byCode[i.code] = byCode[i.code] || []).push(i));
     let prevBatch = null;
     $('#list').innerHTML = list.map(i => {
-      const d = deltas[i.rid] || 0, same = byCode[i.code] || [];
-      const multi = same.length > 1 ? `<span class="multi">같은 코드 ${same.length}곳, 합계 ${same.reduce((a, x) => a + x.qty, 0)}개</span><br>` : '';
-      const meta = [i.order, i.batch].filter(Boolean).join(', ');
       let head = '';
       if (sv === 'batch' && i.batch !== prevBatch) {
         prevBatch = i.batch;
         const g = list.filter(x => x.batch === i.batch);
-        head = `<div class="batchHead"><b>${esc(i.batch ? batchNo(i.batch) + '차' : '항차 미기재')}</b><span>품목 ${g.length}개, 재고 합계 ${g.reduce((a, x) => a + x.qty, 0)}개</span></div>`; }
-        }
+        const withRecv = g.filter(x => x.received !== null && x.received !== undefined);
+        const sealed = withRecv.filter(x => x.qty === x.received).length;
+        const opened = withRecv.filter(x => x.qty > 0 && x.qty < x.received).length;
+        const empty = withRecv.filter(x => x.qty === 0).length;
+        head = `<div class="batchHead"><b>${esc(i.batch ? batchNo(i.batch) + '차' : '항차 미기재')}</b><span>품목 ${g.length}개, 재고 ${g.reduce((a, x) => a + x.qty, 0)}개, 미개봉 ${sealed}, 개봉 ${opened}, 소진 ${empty}</span></div>`;
       }
-                                    }
-  return head + `
+      const d = deltas[i.rid] || 0, same = byCode[i.code] || [];
+      const multi = same.length > 1 ? `<span class="multi">같은 코드 ${same.length}곳, 합계 ${same.reduce((a, x) => a + x.qty, 0)}개</span><br>` : '';
+      const meta = [i.order, i.batch].filter(Boolean).join(', ');
+      return head + `
       <div class="item ${openId === i.rid ? 'open' : ''}" data-id="${esc(i.rid)}">
         <div class="loc ${i.location ? '' : 'none'}">${esc(i.location || '미정')}</div>
         ${i.img
@@ -338,18 +356,28 @@
         <div class="info" role="button" tabindex="0" data-act="open" aria-expanded="${openId === i.rid}">
           <div class="code">${codeHtml(i.code)}</div>
           <div class="name">${esc(i.name)}</div>
-          <div class="sub">${multi}${esc(meta)}${i.memo ? `<br><span class="${/실물 없음|확인 필요/.test(i.memo) ? 'flag' : ''}">${esc(i.memo)}</span>` : ''}</div>
+          <div class="sub">${multi}${esc(meta)}${i.memo ? `<br><span class="${/실물 없음|확인 필요/.test(i.memo) ? 'flag' : ''}">${esc(i.memo)}</span>` : ''}${i.lastOut ? `<br><span class="lastout">최근 반출 ${esc(i.lastOut.time)} ${esc(i.lastOut.user)} ${i.lastOut.change}${i.lastOut.note ? ', ' + esc(i.lastOut.note) : ''}</span>` : ''}</div>
         </div>
-        <div class="qty ${i.qty === 0 ? 'zero' : ''}" data-act="open">${i.qty}<small>개</small></div>
+        <div class="qty ${i.qty === 0 ? 'zero' : ''}" data-act="open">${i.qty}<small>개</small>${i.received !== null && i.received !== undefined ? `<span class="recv">/ ${i.received}</span><div class="bar"><i style="width:${i.received > 0 ? Math.round(i.qty / i.received * 100) : 0}%"></i></div><span class="status ${i.qty === i.received ? 'sealed' : i.qty === 0 ? 'empty' : 'opened'}">${i.qty === i.received ? '미개봉' : i.qty === 0 ? '소진' : '개봉'}</span>` : ''}</div>
         <div class="edit">
           ${i.img ? `<div class="photo"><img loading="lazy" alt="${esc(i.name)}" data-id="${esc(i.img)}" data-w="800" src="${imgUrl(i.img, 800)}" onerror="imgFallback(this)">
             <div class="cap"><b>${esc(i.conf || '이미지')}</b>${confOf(i.conf)[1] ? ', ' + esc(confOf(i.conf)[1]) : ''}${i.src ? `<br>출처: ${esc(i.src)}` : ''}</div></div>` : ''}
+          <div class="modetoggle" data-act="modetoggle">
+            <button class="${getMode(i.rid) === 'use' ? 'on' : ''}" data-mode="use">사용 개수</button>
+            <button class="${getMode(i.rid) === 'left' ? 'on' : ''}" data-mode="left">남은 개수</button>
+          </div>
+          <div class="quickbtns">
+            <button data-act="qminus" data-v="-1">−1</button>
+            <button data-act="qminus" data-v="-5">−5</button>
+            <button data-act="qminus" data-v="-10">−10</button>
+            <button data-act="qall">전량</button>
+          </div>
           <button class="step minus" data-act="minus" aria-label="1개 빼기">−</button>
-          <input class="delta ${d < 0 ? 'neg' : d > 0 ? 'pos' : ''}" type="number" inputmode="numeric" value="${d}" data-act="delta" aria-label="변동 수량">
+          <input class="delta ${d < 0 ? 'neg' : d > 0 ? 'pos' : ''}" type="number" inputmode="numeric" value="${getMode(i.rid) === 'left' && d !== 0 ? i.qty + d : d}" data-act="delta" aria-label="변동 수량">
           <button class="step plus" data-act="plus" aria-label="1개 더하기">+</button>
           <input class="note" placeholder="메모 (현장, 용도 등)" data-act="note">
           <button class="confirm" data-act="confirm" ${d === 0 ? 'disabled' : ''}>확인</button>
-          <div class="preview">${d === 0 ? '− 반출, + 입고' : `${i.qty} → ${i.qty + d}개`}</div>
+          <div class="preview">${d === 0 ? '− 반출, + 입고' : `${i.qty} → ${i.qty + d}개 (${d > 0 ? '+' : ''}${d})`}</div>
           ${i.createdAt ? `<div class="sub">등록: ${esc(i.createdAt)}</div>` : ''}
           <div class="rowbtns"><button data-act="edit">정보 수정</button><button class="danger" data-act="del">삭제</button>${i.img ? '' : '<button data-act="upload">📷 사진 업로드</button>'}</div>
         </div>
@@ -378,13 +406,33 @@
     if (act === 'open') { openId = openId === id ? null : id; render(); }
     if (act === 'minus') setDelta(id, (deltas[id] || 0) - 1);
     if (act === 'plus') setDelta(id, (deltas[id] || 0) + 1);
+    if (act === 'qminus') setDelta(id, (deltas[id] || 0) + Number(el.dataset.v));
+    if (act === 'qall') { const it = items.find(x => x.rid === id); if (it) setDelta(id, -it.qty); }
     if (act === 'confirm') confirmChange(id, el);
     if (act === 'edit') openModal(id);
     if (act === 'del') deleteItem(id);
     if (act === 'upload') { uploadRid = id; $('#imgFile').click(); }
+    if (el.dataset.mode) {
+      const mode = el.dataset.mode;
+      inputModes[id] = mode; store.set('inputMode', mode);
+      deltas[id] = 0; render();
+    }
   });
   $('#list').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.dataset.act === 'open') e.target.click(); });
-  $('#list').addEventListener('change', e => { if (e.target.dataset.act === 'delta') setDelta(e.target.closest('.item').dataset.id, Number(e.target.value)); });
+  $('#list').addEventListener('change', e => {
+    if (e.target.dataset.act === 'delta') {
+      const id = e.target.closest('.item').dataset.id;
+      const it = items.find(x => x.rid === id);
+      const v = Number(e.target.value);
+      if (getMode(id) === 'left' && it) {
+        // 남은 개수 모드: 입력값은 남은 수량, 0~현재수량 범위
+        const left = Math.max(0, Math.min(it.qty, Math.trunc(v) || 0));
+        setDelta(id, left - it.qty);
+      } else {
+        setDelta(id, v);
+      }
+    }
+  });
   $('#search').addEventListener('input', () => { openId = null; if (galMode) renderGallery(); else render(); });
   $('#sortSel').addEventListener('change', () => { openId = null; render(); });
   $('#refresh').addEventListener('click', load);
@@ -432,6 +480,7 @@
     $('#f_code').value = it ? it.code : '';
     $('#f_name').value = it ? it.name : '';
     $('#f_qty').value = it ? it.qty : 0;
+    $('#f_received').value = it && it.received !== null && it.received !== undefined ? it.received : '';
     $('#f_location').value = it ? it.location : '';
     $('#f_order').value = it ? it.order : '';
     $('#f_batch').value = it ? it.batch : '';
@@ -454,7 +503,8 @@
       order: $('#f_order').value.trim(), batch: $('#f_batch').value.trim(),
       body: $('#f_body').value.trim(), diaphragm: $('#f_diaphragm').value.trim(),
       matNote: $('#f_matNote').value.trim(), note: $('#f_note').value.trim(),
-      memo: $('#f_memo').value.trim()
+      memo: $('#f_memo').value.trim(),
+      received: $('#f_received').value === '' ? null : Number($('#f_received').value)
     };
     if (!item.code || !item.name) { $('#modalErr').textContent = 'SEA-CODE와 규격(이름)을 입력하세요.'; return; }
     const btn = $('#modalSave'); btn.disabled = true; btn.textContent = '저장 중…';

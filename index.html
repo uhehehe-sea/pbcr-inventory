@@ -88,7 +88,7 @@
 
   #toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 160%); background: #1D2422; color: #fff; padding: 12px 18px; border-radius: 6px; max-width: 90vw; transition: transform .25s ease; z-index: 10; }
   #toast.show { transform: translate(-50%, 0); } #toast.err { background: #B3412E; }
-  @media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { #toast { transition: none; } } </style></head><body>
 <header>
   <div class="bar">
     <div class="row1"><h1>PBCR 자재 재고</h1><span class="who" id="who"></span></div>
@@ -279,9 +279,6 @@
   });
 
   if (user) start(); else showGate();
-</script>
-</body>
-</html>
 
   });
   $('#list').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.dataset.act === 'open') e.target.click(); });
@@ -349,7 +346,7 @@
     return m ? `${esc(m[1])}<b>${esc(m[2])}</b>` : `<b>${esc(code)}</b>`;
   }
 
-  #gate { max-width: 420px; margin: 40px auto; padding: 24px; background: var(--surface); border-radius: 8px; display: grid; gap: 14px; }
+  </script><style> #gate { max-width: 420px; margin: 40px auto; padding: 24px; background: var(--surface); border-radius: 8px; display: grid; gap: 14px; }
   #gate h2 { margin: 0; font-size: 1.1rem; }
   #gate p { margin: 0; color: var(--muted); font-size: .9rem; }
   #gate label { display: grid; gap: 6px; font-size: .9rem; }

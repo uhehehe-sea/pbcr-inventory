@@ -66,8 +66,8 @@
   .qty small { display: block; font-family: var(--sans); font-weight: 400; font-size: .72rem; color: var(--muted); }
   .qty.zero { color: var(--out); }
   .qty .recv { display: block; font-family: var(--sans); font-weight: 400; font-size: .8rem; color: var(--muted); }
-  .bar { height: 4px; border-radius: 2px; background: var(--line); margin-top: 4px; overflow: hidden; }
-  .bar i { display: block; height: 100%; background: var(--in); border-radius: 2px; }
+  .pbar { height: 4px; border-radius: 2px; background: var(--line); margin-top: 4px; overflow: hidden; }
+  .pbar i { display: block; height: 100%; background: var(--in); border-radius: 2px; }
   .status { display: inline-block; font-size: .72rem; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-top: 4px; }
   .status.sealed { background: var(--in); color: #fff; }
   .status.opened { background: var(--steel); color: #fff; }
@@ -358,7 +358,7 @@
           <div class="name">${esc(i.name)}</div>
           <div class="sub">${multi}${esc(meta)}${i.memo ? `<br><span class="${/실물 없음|확인 필요/.test(i.memo) ? 'flag' : ''}">${esc(i.memo)}</span>` : ''}${i.lastOut ? `<br><span class="lastout">최근 반출 ${esc(i.lastOut.time)} ${esc(i.lastOut.user)} ${i.lastOut.change}${i.lastOut.note ? ', ' + esc(i.lastOut.note) : ''}</span>` : ''}</div>
         </div>
-        <div class="qty ${i.qty === 0 ? 'zero' : ''}" data-act="open">${i.qty}<small>개</small>${i.received !== null && i.received !== undefined ? `<span class="recv">/ ${i.received}</span><div class="bar"><i style="width:${i.received > 0 ? Math.round(i.qty / i.received * 100) : 0}%"></i></div><span class="status ${i.qty === i.received ? 'sealed' : i.qty === 0 ? 'empty' : 'opened'}">${i.qty === i.received ? '미개봉' : i.qty === 0 ? '소진' : '개봉'}</span>` : ''}</div>
+        <div class="qty ${i.qty === 0 ? 'zero' : ''}" data-act="open">${i.qty}<small>개</small>${i.received !== null && i.received !== undefined ? `<span class="recv">/ ${i.received}</span><div class="pbar"><i style="width:${i.received > 0 ? Math.round(i.qty / i.received * 100) : 0}%"></i></div><span class="status ${i.qty === i.received ? 'sealed' : i.qty === 0 ? 'empty' : 'opened'}">${i.qty === i.received ? '미개봉' : i.qty === 0 ? '소진' : '개봉'}</span>` : ''}</div>
         <div class="edit">
           ${i.img ? `<div class="photo"><img loading="lazy" alt="${esc(i.name)}" data-id="${esc(i.img)}" data-w="800" src="${imgUrl(i.img, 800)}" onerror="imgFallback(this)">
             <div class="cap"><b>${esc(i.conf || '이미지')}</b>${confOf(i.conf)[1] ? ', ' + esc(confOf(i.conf)[1]) : ''}${i.src ? `<br>출처: ${esc(i.src)}` : ''}</div></div>` : ''}

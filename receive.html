@@ -47,6 +47,7 @@
   .msg.ok { background:#dafbe1; } .msg.err { background:#ffebe9; } .msg.info { background:#ddf4ff; }
   details pre { white-space:pre-wrap; font-size:12px; max-height:240px; overflow:auto; background:#f6f8fa; padding:8px; }
   .hidden { display:none; }
+  #nameModal.hidden { display:none; }
   #nameModal { position:fixed; inset:0; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; padding:16px; z-index:10; }
   #nameModal .card { width:100%; max-width:360px; }
 </style>
@@ -268,7 +269,9 @@ $('confirmBtn').onclick = async () => {
   msg('시트에 기록하는 중…', 'info');
   try {
     const data = await api({ action: 'confirm', user: getName(), invoiceNo: $('invoiceNo').value.trim(), items, photoUrls });
-    msg(`입고 확정 완료 — 재고 목록 ${data.updated}건 체크` + (data.notInList ? `, 목록에 없는 코드 ${data.notInList}건은 입고기록 탭에만 저장` : ''), 'ok');
+    msg(`입고 확정 완료 — 재고 목록 ${data.updated}건 체크` +
+        (data.stockAdded ? `, 재고 수량 ${data.stockAdded}건 반영` : '') +
+        (data.notInList ? `, 목록에 없는 코드 ${data.notInList}건은 입고기록 탭에만 저장` : ''), 'ok');
     items = []; photoUrls = []; rawTexts = []; $('raw').textContent = ''; $('invoiceNo').value = '';
     render();
   } catch (err) {

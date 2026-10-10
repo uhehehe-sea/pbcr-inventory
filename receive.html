@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>PBCR 입고 확인</title>
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --ink:#1d2330; --sub:#6b7280; --line:#e3e6eb;
+          --blue:#1f6feb; --green:#1a7f37; --warn:#fff4c2; --red:#cf222e; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.45 -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+  header { position:sticky; top:0; z-index:5; background:var(--ink); color:#fff;
+           padding:12px 16px; display:flex; justify-content:space-between; align-items:center; }
+  header h1 { font-size:17px; margin:0; }
+  header small { opacity:.8; }
+  main { padding:12px 16px 120px; max-width:640px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; }
+  label { display:block; font-size:13px; color:var(--sub); margin-bottom:4px; }
+  input, select, button { font:inherit; }
+  input[type=text], input[type=number], select {
+    width:100%; padding:10px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+  .btn { width:100%; padding:14px; border:0; border-radius:10px; background:var(--blue); color:#fff; font-weight:600; }
+  .btn.ghost { background:#fff; color:var(--blue); border:1px solid var(--blue); }
+  .btn.green { background:var(--green); }
+  .btn:disabled { opacity:.5; }
+  .row { display:flex; gap:8px; }
+  .row > * { flex:1; }
+  .progress { font-weight:700; }
+  .item { display:grid; grid-template-columns:44px 1fr; gap:10px; padding:12px 0; border-top:1px solid var(--line); }
+  .item:first-child { border-top:0; }
+  .item.unknown { background:var(--warn); margin:0 -14px; padding:12px 14px; }
+  .item.done .code { color:var(--green); }
+  .chk { width:36px; height:36px; margin-top:2px; accent-color:var(--green); }
+  .code { font-family:ui-monospace, Menlo, monospace; font-size:15px; }
+  .code b { font-size:19px; }
+  .name { color:var(--sub); font-size:13px; margin:2px 0 8px; }
+  .fields { display:grid; grid-template-columns:80px 1fr; gap:6px; }
+  .fields .note { grid-column:1 / -1; }
+  .del { background:none; border:0; color:var(--red); font-size:13px; padding:6px 0 0; }
+  .bar { position:fixed; left:0; right:0; bottom:0; background:#fff; border-top:1px solid var(--line);
+         padding:10px 16px calc(10px + env(safe-area-inset-bottom)); }
+  .bar .inner { max-width:640px; margin:0 auto; }
+  .msg { padding:10px; border-radius:8px; margin-bottom:12px; display:none; }
+  .msg.show { display:block; }
+  .msg.ok { background:#dafbe1; } .msg.err { background:#ffebe9; } .msg.info { background:#ddf4ff; }
+  details pre { white-space:pre-wrap; font-size:12px; max-height:240px; overflow:auto; background:#f6f8fa; padding:8px; }
+  .hidden { display:none; }
+  #nameModal { position:fixed; inset:0; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; padding:16px; z-index:10; }
+  #nameModal .card { width:100%; max-width:360px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📦 PBCR 입고 확인</h1>
+  <small id="userLabel"></small>
+</header>
+
+<main>
+  <div id="msg" class="msg"></div>
+
+  <div class="card">
+    <label for="invoiceNo">인보이스 / PO 번호 (선택 · 라벨이면 자동 입력)</label>
+    <input id="invoiceNo" type="text" placeholder="예: INV-2026-1012" autocomplete="off">
+  </div>
+
+  <div class="card">
+    <input id="photo" type="file" accept="image/*" capture="environment" multiple class="hidden">
+    <button class="btn" id="photoBtn">📷 인보이스 촬영 / 사진 선택</button>
+    <p style="font-size:13px;color:var(--sub);margin:8px 0 0">여러 장이면 한 장씩 계속 찍어도 목록에 합쳐져요.</p>
+  </div>
+
+  <div class="card" id="listCard">
+    <div class="row" style="align-items:center;margin-bottom:6px">
+      <div class="progress" id="progress">품목 0개</div>
+      <button class="btn ghost" id="checkAll" style="flex:0 0 auto;width:auto;padding:8px 12px">전체 체크</button>
+    </div>
+    <div id="list"><p style="color:var(--sub)">인보이스를 찍으면 품목이 여기에 나와요.</p></div>
+  </div>
+
+  <div class="card">
+    <label for="manualCode">직접 추가 (인보이스에 없거나 안 읽힌 코드)</label>
+    <div class="row">
+      <input id="manualCode" type="text" placeholder="IP00021811" autocomplete="off" style="flex:2">
+      <button class="btn ghost" id="addBtn" style="flex:1">추가</button>
+    </div>
+  </div>
+
+  <details class="card" id="rawBox">
+    <summary>OCR 원문 보기 (인식 확인용)</summary>
+    <pre id="raw"></pre>
+  </details>
+</main>
+
+<div class="bar"><div class="inner">
+  <button class="btn green" id="confirmBtn" disabled>입고 확정</button>
+</div></div>
+
+<div id="nameModal" class="hidden">
+  <div class="card">
+    <label for="nameInput">이름을 입력해 주세요 (기록용, 처음 한 번만)</label>
+    <input id="nameInput" type="text" placeholder="이름">
+    <div style="height:10px"></div>
+    <button class="btn" id="nameSave">시작</button>
+  </div>
+</div>
+
+<script>
+/* ===== 설정: Apps Script 웹 앱 배포 URL ===== */
+const API_URL = 'https://script.google.com/macros/s/AKfycbxmmGa-L4M7rHUefdyIidkkIMNWifyT_NH0drpqRzqWMFua4k90C5iisf2jzSOh8zRT/exec';
+const NAME_KEY = 'pbcr_user';
+
+const $ = id => document.getElementById(id);
+let items = [];        // {code, name, inList, checked, qty, status, note}
+let photoUrls = [];
+let rawTexts = [];
+
+/* ---------- 이름 ---------- */
+function getName() { try { return localStorage.getItem(NAME_KEY) || ''; } catch (e) { return window._name || ''; } }
+function setName(n) { try { localStorage.setItem(NAME_KEY, n); } catch (e) {} window._name = n; }
+function showUser() {
+  const n = getName();
+  $('userLabel').textContent = n ? n + ' · 변경' : '';
+  if (!n) $('nameModal').classList.remove('hidden');
+}
+$('userLabel').onclick = () => { $('nameInput').value = getName(); $('nameModal').classList.remove('hidden'); };
+$('nameSave').onclick = () => {
+  const n = $('nameInput').value.trim();
+  if (!n) return;
+  setName(n); $('nameModal').classList.add('hidden'); showUser();
+};
+
+/* ---------- 공통 ---------- */
+function msg(text, type) {
+  const m = $('msg'); m.textContent = text; m.className = 'msg show ' + (type || 'info');
+  if (type === 'ok') setTimeout(() => m.className = 'msg', 4000);
+}
+async function api(body) {
+  const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify(body) }); // text/plain → CORS 사전요청 없음
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || '서버 오류');
+  return data;
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* 사진을 긴 변 1800px JPEG로 줄여 base64 반환 (전송 속도·OCR 품질 균형) */
+function shrink(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const max = 1800, s = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      resolve(c.toDataURL('image/jpeg', 0.88).split(',')[1]);
+      URL.revokeObjectURL(img.src);
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+function addItems(list) {
+  let added = 0;
+  list.forEach(it => {
+    if (items.some(x => x.code === it.code)) return;
+    items.push({ code: it.code, name: it.name || '', inList: it.inList, checked: false, qty: '', status: '정상', note: '' });
+    added++;
+  });
+  render();
+  return added;
+}
+
+/* ---------- 촬영 → OCR ---------- */
+$('photoBtn').onclick = () => $('photo').click();
+$('photo').onchange = async e => {
+  const files = [...e.target.files]; e.target.value = '';
+  if (!files.length) return;
+  $('photoBtn').disabled = true;
+  try {
+    for (let i = 0; i < files.length; i++) {
+      msg(`사진 ${i + 1}/${files.length} 읽는 중… (10~20초)`, 'info');
+      const image = await shrink(files[i]);
+      const data = await api({ action: 'ocr', image, invoiceNo: $('invoiceNo').value.trim() });
+      photoUrls.push(data.photoUrl);
+      rawTexts.push(data.rawText);
+      const added = addItems(data.items);
+      applyLabel(data);
+      msg(`코드 ${data.items.length}개 인식 (새로 추가 ${added}개)` +
+          (data.items.length ? '' : ' — 안 읽히면 OCR 원문을 확인하거나 직접 추가하세요'), data.items.length ? 'ok' : 'err');
+    }
+    $('raw').textContent = rawTexts.join('\n\n────────\n\n');
+  } catch (err) {
+    msg('읽기 실패: ' + err.message, 'err');
+  } finally {
+    $('photoBtn').disabled = false;
+  }
+};
+
+/* SEA 라벨(코드 1개)이면 수량·품명·PO 자동 채움 + 시트 PO와 대조 */
+function applyLabel(data) {
+  const lb = data.label;
+  if (!lb || data.items.length !== 1) return;
+  const it = items.find(x => x.code === data.items[0].code);
+  if (!it) return;
+  if (lb.qty && it.qty === '') it.qty = lb.qty;
+  if (lb.desc && !it.note) it.note = lb.desc;
+  if (lb.po && !$('invoiceNo').value.trim()) $('invoiceNo').value = lb.po;
+  it.warn = (lb.po && data.items[0].po && lb.po !== data.items[0].po.toUpperCase())
+    ? `PO 불일치 — 라벨 ${lb.po} / 시트 ${data.items[0].po}` : '';
+  render();
+}
+
+/* ---------- 직접 추가 ---------- */
+$('addBtn').onclick = async () => {
+  const code = $('manualCode').value.trim().toUpperCase().replace(/\s/g, '');
+  if (!/^[A-Z]{2}\d{8}$/.test(code)) { msg('코드 형식은 영문 2자 + 숫자 8자리예요 (예: IP00021811)', 'err'); return; }
+  try {
+    const data = await api({ action: 'lookup', codes: [code] });
+    addItems(data.items); $('manualCode').value = '';
+  } catch (err) { msg('추가 실패: ' + err.message, 'err'); }
+};
+
+/* ---------- 목록 ---------- */
+function render() {
+  const done = items.filter(x => x.checked).length;
+  $('progress').textContent = items.length ? `확인 ${done} / ${items.length}` : '품목 0개';
+  $('confirmBtn').disabled = !items.length;
+  if (!items.length) { $('list').innerHTML = '<p style="color:var(--sub)">인보이스를 찍으면 품목이 여기에 나와요.</p>'; return; }
+  $('list').innerHTML = items.map((it, i) => `
+    <div class="item ${it.inList ? '' : 'unknown'} ${it.checked ? 'done' : ''}">
+      <input type="checkbox" class="chk" data-i="${i}" data-f="checked" ${it.checked ? 'checked' : ''}>
+      <div>
+        <div class="code">${esc(it.code.slice(0, -4))}<b>${esc(it.code.slice(-4))}</b></div>
+        <div class="name">${it.inList ? esc(it.name || '(품명 없음)') : '⚠ 재고 목록에 없는 코드 — 오타인지 확인'}</div>
+        ${it.warn ? `<div class="name" style="color:var(--red);font-weight:600">⚠ ${esc(it.warn)}</div>` : ''}
+        <div class="fields">
+          <input type="number" inputmode="numeric" placeholder="수량" value="${esc(it.qty)}" data-i="${i}" data-f="qty">
+          <select data-i="${i}" data-f="status">
+            ${['정상','부족','초과','파손'].map(s => `<option ${s === it.status ? 'selected' : ''}>${s}</option>`).join('')}
+          </select>
+          <input type="text" class="note" placeholder="비고 (보관 위치 등)" value="${esc(it.note)}" data-i="${i}" data-f="note">
+        </div>
+        <button class="del" data-del="${i}">삭제</button>
+      </div>
+    </div>`).join('');
+}
+$('list').addEventListener('change', e => {
+  const t = e.target, i = t.dataset.i, f = t.dataset.f;
+  if (i === undefined) return;
+  items[i][f] = t.type === 'checkbox' ? t.checked : t.value;
+  if (f === 'checked') render();
+});
+$('list').addEventListener('click', e => {
+  const d = e.target.dataset.del;
+  if (d !== undefined && confirm(items[d].code + ' 를 목록에서 뺄까요?')) { items.splice(d, 1); render(); }
+});
+$('checkAll').onclick = () => { items.forEach(x => x.checked = true); render(); };
+
+/* ---------- 확정 ---------- */
+$('confirmBtn').onclick = async () => {
+  if (!getName()) { $('nameModal').classList.remove('hidden'); return; }
+  const left = items.filter(x => !x.checked).length;
+  if (left && !confirm(`아직 체크 안 된 품목이 ${left}개 있어요. 그대로 확정할까요?`)) return;
+  $('confirmBtn').disabled = true;
+  msg('시트에 기록하는 중…', 'info');
+  try {
+    const data = await api({ action: 'confirm', user: getName(), invoiceNo: $('invoiceNo').value.trim(), items, photoUrls });
+    msg(`입고 확정 완료 — 재고 목록 ${data.updated}건 체크` + (data.notInList ? `, 목록에 없는 코드 ${data.notInList}건은 입고기록 탭에만 저장` : ''), 'ok');
+    items = []; photoUrls = []; rawTexts = []; $('raw').textContent = ''; $('invoiceNo').value = '';
+    render();
+  } catch (err) {
+    msg('확정 실패: ' + err.message, 'err');
+    $('confirmBtn').disabled = false;
+  }
+};
+
+showUser();
+render();
+</script>
+</body>
+</html>

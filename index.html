@@ -60,6 +60,7 @@
   .code { font-family: var(--num); font-weight: 600; font-size: 1rem; color: var(--muted); letter-spacing: .02em; line-height: 1.1; }
   .code b { font-weight: 700; font-size: 1.6rem; color: var(--ink); }
   .name { font-weight: 500; overflow-wrap: anywhere; }
+  .koname { font-size: .9rem; color: var(--steel); font-weight: 600; overflow-wrap: anywhere; }
   .sub { color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; }
   .sub .multi { color: var(--steel); font-weight: 500; }
   .sub .flag { color: var(--out); }
@@ -366,6 +367,7 @@
         <div class="info" role="button" tabindex="0" data-act="open" aria-expanded="${openId === i.rid}">
           <div class="code">${codeHtml(i.code)}</div>
           <div class="name">${esc(i.name)}</div>
+          ${i.ko ? `<div class="koname">${esc(i.ko)}</div>` : ''}
           <div class="sub">${multi}${esc(meta)}${i.memo ? `<br><span class="${/실물 없음|확인 필요/.test(i.memo) ? 'flag' : ''}">${esc(i.memo)}</span>` : ''}${i.lastOut ? `<br><span class="lastout">최근 반출 ${esc(i.lastOut.time)} ${esc(i.lastOut.user)} ${i.lastOut.change}${i.lastOut.note ? ', ' + esc(i.lastOut.note) : ''}</span>` : ''}</div>
         </div>
         <div class="qty ${i.qty === 0 ? 'zero' : ''}" data-act="open">${i.qty}<small>개</small>${i.received !== null && i.received !== undefined ? `<span class="recv">/ ${i.received}</span><div class="pbar"><i style="width:${i.received > 0 ? Math.round(i.qty / i.received * 100) : 0}%"></i></div><span class="status ${i.qty === i.received ? 'sealed' : i.qty === 0 ? 'empty' : 'opened'}">${i.qty === i.received ? '미개봉' : i.qty === 0 ? '소진' : '개봉'}</span>` : ''}</div>
@@ -480,7 +482,7 @@
     $('#galImg').src = imgUrl(it.img, 800);
     $('#galImg').onerror = function() { imgFallback(this); };
     $('#galCode').textContent = it.code;
-    $('#galName').textContent = it.name;
+    $('#galName').textContent = it.ko ? `${it.name} / ${it.ko}` : it.name;
     $('#galLoc').textContent = it.location || '미정';
     $('#galQty').textContent = `재고 ${it.qty}개`;
     $('#galModal').hidden = false;

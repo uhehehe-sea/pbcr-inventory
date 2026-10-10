@@ -10,6 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<script src="field-search.js"></script>
 <style>
   :root {
     --concrete: #E4E6E1; --surface: #F7F8F5; --ink: #1D2422; --muted: #66706C; --line: #C9CEC8;
@@ -160,7 +161,7 @@
 <header>
   <div class="bar">
     <div class="row1"><h1>PBCR 자재 재고</h1><span style="display:flex;gap:8px;align-items:center"><a href="receive.html" style="font-size:.85rem;color:#fff;background:rgba(255,255,255,.18);padding:6px 12px;border-radius:6px;text-decoration:none">📦 입고</a><span class="who" id="who"></span></span></div>
-    <input id="search" type="search" placeholder="코드 뒤 4자리 (예: 1811), 이름, 위치" autocomplete="off" enterkeyhint="search" hidden>
+    <input id="search" type="search" placeholder="코드 뒤 4자리, 이름, 또는 한글 (예: 서스304)" autocomplete="off" enterkeyhint="search" hidden>
   </div>
 </header>
 
@@ -314,8 +315,15 @@
   window.imgFallback = el => { if (!el.dataset.alt) { el.dataset.alt = 1; el.src = imgAlt(el.dataset.id, el.dataset.w); } else { el.closest('.thumb, .photo')?.classList.add('broken'); el.remove(); } };
 
   function render() {
-    const q = $('#search').value.trim().toLowerCase();
-    const list = items.filter(i => matches(i, q));
+    const rawQ = $('#search').value.trim();
+    const q = rawQ.toLowerCase();
+    let list;
+    if (/[가-힣]/.test(rawQ) && window.FieldSearch) {
+      // 한글 검색: 현장 용어 사전으로 변환 후 검색
+      list = FieldSearch.search(items, rawQ).map(r => r.item);
+    } else {
+      list = items.filter(i => matches(i, q));
+    }
     const sv = $('#sortSel').value;
     list.sort((a, b) => {
       switch (sv) {
@@ -447,8 +455,12 @@
   /* ---------- 갤러리 ---------- */
   let galMode = false;
   function renderGallery() {
-    const q = $('#search').value.trim().toLowerCase();
-    const list = items.filter(i => i.img && matches(i, q));
+    const rawQ = $('#search').value.trim();
+    const q = rawQ.toLowerCase();
+    const base = (/[가-힣]/.test(rawQ) && window.FieldSearch)
+      ? FieldSearch.search(items, rawQ).map(r => r.item)
+      : items.filter(i => matches(i, q));
+    const list = base.filter(i => i.img);
     $('#gallery').innerHTML = list.length ? list.map(i => `
       <div class="gcell" data-rid="${esc(i.rid)}">
         <img loading="lazy" alt="${esc(i.name)}" src="${imgUrl(i.img, 200)}" onerror="imgFallback(this)">

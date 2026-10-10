@@ -39,6 +39,8 @@
     ['UNION', ['유니온', '유니언']],
     ['SOCKET', ['소켓', '소케또']],
     ['PRESSURE REDUCING VALVE', ['감압밸브', '감압변']],
+    ['PRESSURE', ['압력']],
+    ['GAUGE|GAGE', ['게이지', '압력계']],
     ['VALVE', ['밸브', '벨브', '발브']],
     ['PACKING|GASKET', ['빠킹', '패킹', '가스켓', '개스킷']],
     ['O-RING|ORING|O RING', ['오링', '오-링']],
@@ -113,7 +115,9 @@
   function hay(item) {
     const name = norm(item.name);
     const other = norm([item.matNote, item.body, item.diaphragm, item.note, item.memo, item.order].join(' '));
-    return { name, other, code: String(item.code || '').toUpperCase() };
+    // 한글명·현장명 열(있으면): 품명과 같은 가중치
+    const ko = norm([item.ko, item.koName, item.krName, item.alias, item.aliases, item['한글명'], item['현장명']].filter(Boolean).join(' '));
+    return { name: name + (ko ? ' ' + ko : ''), other, code: String(item.code || '').toUpperCase() };
   }
 
   /* ---------- 3. 검색어 → 조건 목록 ---------- */
@@ -131,7 +135,8 @@
         q = q.replace(re, () => ' §' + (groups.push(alts) - 1) + '§ ');
       } else {
         q = q.split(alias).join(' §' + groups.length + '§ ');
-        if (q.indexOf('§' + groups.length + '§') >= 0) groups.push(alts);
+        // 한글 별칭 자체도 후보에 남김 → 시트의 '한글명/현장명' 열과도 맞춰봄
+        if (q.indexOf('§' + groups.length + '§') >= 0) groups.push(/[가-힣]/.test(alias) ? alts.concat([alias]) : alts);
       }
     });
 

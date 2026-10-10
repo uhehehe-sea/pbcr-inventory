@@ -270,7 +270,9 @@ $('confirmBtn').onclick = async () => {
   try {
     const data = await api({ action: 'confirm', user: getName(), invoiceNo: $('invoiceNo').value.trim(), items, photoUrls });
     msg(`입고 확정 완료 — 재고 목록 ${data.updated}건 체크` +
-        (data.stockAdded ? `, 재고 수량 ${data.stockAdded}건 반영` : '') +
+        (data.pushed ? `, 재고 수량 ${data.pushed}건 반영` : '') +
+        (data.unmatched && data.unmatched.length ? `, 재고에 없는 코드 ${data.unmatched.length}건(${data.unmatched.join(', ')})` : '') +
+        (data.pushErrors && data.pushErrors.length ? `, 오류 ${data.pushErrors.length}건` : '') +
         (data.notInList ? `, 목록에 없는 코드 ${data.notInList}건은 입고기록 탭에만 저장` : ''), 'ok');
     items = []; photoUrls = []; rawTexts = []; $('raw').textContent = ''; $('invoiceNo').value = '';
     render();

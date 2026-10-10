@@ -47,9 +47,9 @@
   .msg.ok { background:#dafbe1; } .msg.err { background:#ffebe9; } .msg.info { background:#ddf4ff; }
   details pre { white-space:pre-wrap; font-size:12px; max-height:240px; overflow:auto; background:#f6f8fa; padding:8px; }
   .hidden { display:none; }
-  #nameModal.hidden { display:none; }
   #nameModal { position:fixed; inset:0; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; padding:16px; z-index:10; }
   #nameModal .card { width:100%; max-width:360px; }
+  #nameModal.hidden { display:none; }
 </style>
 </head>
 <body>
@@ -266,14 +266,29 @@ $('confirmBtn').onclick = async () => {
   const left = items.filter(x => !x.checked).length;
   if (left && !confirm(`아직 체크 안 된 품목이 ${left}개 있어요. 그대로 확정할까요?`)) return;
   $('confirmBtn').disabled = true;
-  msg('시트에 기록하는 중…', 'info');
+  const invoiceNo = $('invoiceNo').value.trim();
   try {
-    const data = await api({ action: 'confirm', user: getName(), invoiceNo: $('invoiceNo').value.trim(), items, photoUrls });
-    msg(`입고 확정 완료 — 재고 목록 ${data.updated}건 체크` +
-        (data.pushed ? `, 재고 수량 ${data.pushed}건 반영` : '') +
-        (data.unmatched && data.unmatched.length ? `, 재고에 없는 코드 ${data.unmatched.length}건(${data.unmatched.join(', ')})` : '') +
-        (data.pushErrors && data.pushErrors.length ? `, 오류 ${data.pushErrors.length}건` : '') +
-        (data.notInList ? `, 목록에 없는 코드 ${data.notInList}건은 입고기록 탭에만 저장` : ''), 'ok');
+    // 1) 재고 앱에 이미 있는 코드 확인 → 품목마다 팝업, 확인=수량 증가 / 취소=기록만 하고 재고 수량은 그대로
+    msg('재고 중복 확인 중…', 'info');
+    const pre = await api({ action: 'precheck', invoiceNo, items });
+    const skipPush = [];
+    for (const d of pre.dups) {
+      const head = d.sameInvoice
+        ? `⚠ 이미 확정된 입고예요 (${d.loggedAt}, 같은 인보이스/PO)\n두 번 더해질 수 있어요.\n\n`
+        : '재고에 이미 있는 코드예요.\n\n';
+      const ok = confirm(head + `${d.code}\n현재 재고 ${d.stockQty} → ${d.stockQty + d.addQty} (+${d.addQty})\n\n확인: 수량 증가\n취소: 입고 기록만 하고 재고 수량은 그대로`);
+      if (!ok) skipPush.push(d.code);
+    }
+    // 2) 확정
+    msg('시트에 기록하는 중…', 'info');
+    const data = await api({ action: 'confirm', user: getName(), invoiceNo, items, photoUrls, skipPush });
+    const parts = [`입고 확정 완료 — 입고 시트 ${data.updated}건 기록`];
+    if (data.pushed) parts.push(`재고 수량 ${data.pushed}건 증가`);
+    if (data.skipped && data.skipped.length) parts.push(`재고 반영 안 함 ${data.skipped.length}건`);
+    if (data.unmatched && data.unmatched.length) parts.push(`재고 앱에 없는 코드 ${data.unmatched.join(', ')}`);
+    if (data.notInList) parts.push(`입고 시트에 없는 코드 ${data.notInList}건은 입고기록 탭에만 저장`);
+    const errs = data.pushErrors || [];
+    msg(parts.join(' · ') + (errs.length ? ` · ⚠ 재고 반영 오류: ${errs.join(' / ')}` : ''), errs.length ? 'err' : 'ok');
     items = []; photoUrls = []; rawTexts = []; $('raw').textContent = ''; $('invoiceNo').value = '';
     render();
   } catch (err) {

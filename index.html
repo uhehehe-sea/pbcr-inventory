@@ -54,8 +54,9 @@
   .item:first-child { border-radius: 8px 8px 0 0; }
   .item:last-child { border-radius: 0 0 8px 8px; border-bottom: none; }
   .item:only-child { border-radius: 8px; }
-  .loc { min-width: 64px; padding: 6px 8px; text-align: center; background: var(--tag); color: var(--tag-ink); font-family: var(--num); font-weight: 700; font-size: 1.3rem; line-height: 1; border-left: 4px solid #1D2422; overflow-wrap: anywhere; max-width: 96px; }
+  .loc { min-width: 64px; padding: 6px 8px; text-align: center; background: var(--tag); color: var(--tag-ink); font-family: var(--num); font-weight: 700; font-size: 1.3rem; line-height: 1; border-left: 4px solid #1D2422; overflow-wrap: anywhere; max-width: 96px; cursor: pointer; }
   .loc.none { background: transparent; border: 2px dashed var(--line); color: var(--muted); font-size: 1rem; }
+  .locedit { width: 88px; font: inherit; text-align: center; border: 2px solid #1D2422; border-radius: 6px; padding: 2px 4px; }
   .info { min-width: 0; cursor: pointer; }
   .code { font-family: var(--num); font-weight: 600; font-size: 1rem; color: var(--muted); letter-spacing: .02em; line-height: 1.1; }
   .code b { font-weight: 700; font-size: 1.6rem; color: var(--ink); }
@@ -360,7 +361,7 @@
       const meta = [i.order, i.batch].filter(Boolean).join(', ');
       return head + `
       <div class="item ${openId === i.rid ? 'open' : ''}" data-id="${esc(i.rid)}">
-        <div class="loc ${i.location ? '' : 'none'}">${esc(i.location || '미정')}</div>
+        <div class="loc ${i.location ? '' : 'none'}" data-act="editloc" title="클릭해서 위치 수정">${esc(i.location || '미정')}</div>
         ${i.img
           ? `<div class="thumb" data-act="open"><img loading="lazy" alt="" data-id="${esc(i.img)}" data-w="120" src="${imgUrl(i.img, 120)}" onerror="imgFallback(this)">${confOf(i.conf)[0] ? `<span class="tag">${esc(confOf(i.conf)[0])}</span>` : ''}</div>`
           : `<div class="thumb none" data-act="open">사진<br>없음</div>`}
@@ -423,6 +424,7 @@
     const el = e.target.closest('[data-act]'); if (!el) return;
     const id = el.closest('.item').dataset.id, act = el.dataset.act;
     if (act === 'open') { openId = openId === id ? null : id; render(); }
+    if (act === 'editloc') { startLocEdit(id, el); return; }
     if (act === 'minus') setDelta(id, (deltas[id] || 0) - 1);
     if (act === 'plus') setDelta(id, (deltas[id] || 0) + 1);
     if (act === 'qminus') setDelta(id, (deltas[id] || 0) + Number(el.dataset.v));
@@ -492,6 +494,38 @@
 
   /* ---------- 품목 등록/수정/삭제 ---------- */
   let editRid = null;
+  /* 위치 인라인 편집: 위치 라벨 클릭 → 입력창 → Enter/포커스아웃 시 저장 */
+  function startLocEdit(rid, locEl) {
+    const it = items.find(x => x.rid === rid); if (!it || locEl.querySelector('input')) return;
+    const cur = it.location || '';
+    locEl.innerHTML = `<input class="locedit" value="${esc(cur)}" placeholder="위치 입력" aria-label="위치 수정">`;
+    const inp = locEl.querySelector('input');
+    inp.focus(); inp.select();
+    let done = false;
+    const finish = async (save) => {
+      if (done) return; done = true;
+      const v = inp.value.trim();
+      if (save && v !== cur) {
+        try {
+          await api('updateItem', { user, rid, item: {
+            code: it.code, name: it.name, qty: it.qty, location: v,
+            order: it.order, batch: it.batch, note: it.note,
+            body: it.body, diaphragm: it.diaphragm, matNote: it.matNote,
+            memo: it.memoRaw, received: it.received
+          }});
+          toast('위치가 수정되었습니다.');
+        } catch (err) { toast(err.message, true); }
+        load();
+      } else render();
+    };
+    inp.addEventListener('keydown', ev => {
+      ev.stopPropagation();
+      if (ev.key === 'Enter') finish(true);
+      else if (ev.key === 'Escape') finish(false);
+    });
+    inp.addEventListener('click', ev => ev.stopPropagation());
+    inp.addEventListener('blur', () => finish(true));
+  }
   function openModal(rid) {
     editRid = rid || null;
     $('#modalTitle').textContent = rid ? '품목 정보 수정' : '새 품목 등록';

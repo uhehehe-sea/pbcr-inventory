@@ -10,7 +10,240 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="field-search.js"></script>
+<script>
+/**
+ * PBCR 현장 용어 검색 (field-search.js)
+ * 재고 앱(index.html)에 붙이는 검색 모듈. 외부 라이브러리 없음.
+ *
+ * 사용법
+ *   (index.html 안에 넣어 사용)
+ *   const results = FieldSearch.search(items, '서스304 어디있어?');
+ *   // results: [{ item, score }]  — 점수 높은 순
+ *   // 결과가 0건이면 FieldSearch.onMiss(query) 가 호출됨 (기본: 아무것도 안 함 → 로그 기록용으로 교체 가능)
+ *
+ * items 형식: 재고 API 'items' 응답 그대로 (code, name, matNote, body, diaphragm, note, memo, order, location …)
+ *
+ * 사전 추가: FieldSearch.addTerms([['SUS', ['서스','스텐']], ...])  — 시트 '용어사전' 탭을 읽어 넣을 때 사용
+ */
+(function (global) {
+  'use strict';
+
+  /* ---------- 1. 용어사전: [검색 키워드(들), [현장 용어들]] ----------
+     키워드에 '|' 를 쓰면 "이 중 아무거나" (예: 'PTFE|TEFLON')
+     ※ 현장 분들 확인 전 초안. 근거: 업체·자재몰 표기 조사 + 재고 품명 */
+  const TERMS = [
+    // 재질
+    ['SUS', ['서스', '스텐', '스뎅', '스테인리스', '스테인레스', 'STS']],
+    ['PTFE|TEFLON', ['테프론', '테플론', '테프']],
+    ['FPM|FKM|VITON', ['바이톤', '불소고무', '비톤']],
+    ['EPDM', ['이피디엠', '에틸렌프로필렌']],
+    ['PVDF', ['피브이디에프', '피비디에프', '불소수지']],
+    ['PEEK', ['피크']],
+    ['PP', ['피피', '폴리프로필렌']],
+    ['PVC', ['피브이씨', '피비씨']],
+    ['AFLAS', ['아플라스']],
+    ['PFA', ['피에프에이']],
+    // 배관 부속
+    ['ELBOW', ['엘보우', '엘보', '엘보우관']],
+    ['TEE', ['티이', '티자', '티']],
+    ['REDUCER', ['레듀샤', '레듀서', '리듀서']],
+    ['FLANGE', ['후렌지', '플랜지', '프랜지']],
+    ['NIPPLE', ['니뿌루', '니플']],
+    ['UNION', ['유니온', '유니언']],
+    ['SOCKET', ['소켓', '소케또']],
+    ['PRESSURE REDUCING VALVE', ['감압밸브', '감압변']],
+    ['PRESSURE', ['압력']],
+    ['GAUGE|GAGE', ['게이지', '압력계']],
+    ['VALVE', ['밸브', '벨브', '발브']],
+    ['PACKING|GASKET', ['빠킹', '패킹', '가스켓', '개스킷']],
+    ['O-RING|ORING|O RING', ['오링', '오-링']],
+    ['FITTING', ['피팅']],
+    ['PIPE', ['파이프', '배관']],
+    // 체결
+    ['BOLT', ['볼트', '보루또']],
+    ['NUT', ['너트', '나또']],
+    ['WASHER', ['와샤', '와셔']],
+    ['SCREW|BOLT', ['나사', '스크류']],
+    ['HEX', ['육각']],
+    ['WRENCH', ['렌치', '랜치']],
+    ['HEADLESS', ['무두']],
+    ['ROUND HEAD', ['둥근머리', '라운드헤드']],
+    // 부품·장비
+    ['GRIPPER', ['그리퍼', '그립퍼', '집게']],
+    ['HOLDER', ['홀더', '고정대']],
+    ['COVER', ['커버', '덮개']],
+    ['SUPPORT', ['서포트', '받침']],
+    ['LEVEL', ['레벨', '수위']],
+    ['SENSOR', ['센서', '쎈서']],
+    ['CONDUCTIVITY', ['전도도']],
+    ['CABLE', ['케이블', '케불']],
+    ['DRAIN', ['드레인', '배수']],
+    ['NOZZLE', ['노즐']],
+    ['PUMP', ['펌프', '뽐뿌']],
+    ['HEATER', ['히터']],
+    ['ROLLER', ['롤러', '로라']],
+    ['HANDLE', ['핸들', '손잡이']],
+    ['SHAFT', ['샤프트', '축']],
+    ['BEARING', ['베어링', '베아링']],
+    ['PIN', ['핀']],
+    ['BLOCK', ['블럭', '블록']],
+    ['BATH', ['배스', '수조']],
+    ['SOLENOID', ['솔레노이드', '솔밸브']],
+    ['O3 GENERATOR', ['오존발생기', '오존']],
+    ['WELDING', ['용접기', '용접']],
+    ['LOCK', ['락', '잠금']],
+    ['RAIL', ['레일']],
+    ['INNER', ['이너', '안쪽']],
+    ['WHITE', ['흰색', '화이트']],
+    ['GRAY|GREY', ['회색', '그레이']]
+  ];
+
+  // 검색어에서 빼는 말 (말하듯이 쳐도 되게)
+  const FILLER = ['어디있어', '어디 있어', '어디있나', '어디있지', '어디에', '어디', '위치', '있어', '있나',
+    '몇개', '몇 개', '찾아줘', '찾아', '알려줘', '보여줘', '재고', '좀', '요'];
+  const JOSA = /(은|는|이|가|을|를|에|의|도|랑|하고)$/;
+
+  let dict = [];   // [{ alias, alts:[...] }] — 긴 별칭 먼저
+  function buildDict(list) {
+    list.forEach(([key, aliases]) => {
+      const alts = String(key).toUpperCase().split('|').map(s => s.trim()).filter(Boolean);
+      aliases.forEach(a => dict.push({ alias: String(a).toUpperCase(), alts }));
+    });
+    dict.sort((a, b) => b.alias.length - a.alias.length);
+  }
+  buildDict(TERMS);
+
+  /* ---------- 2. 정규화 ---------- */
+  function norm(s) {
+    return String(s || '')
+      .normalize('NFKC')                 // 전각 → 반각
+      .toUpperCase()
+      .replace(/\bSTS\s*[-_]?\s*(?=\d{3})/g, 'SUS')            // KS 표기 STS304 → SUS304
+      .replace(/\bSUS\s*[-_]?\s*(\d{3}L?)\b/g, 'SUS$1')         // SUS 304 / SUS-304 → SUS304
+      .replace(/\bPP\s*[-_]\s*([HNW])\b/g, 'PP-$1')              // PP H → PP-H
+      .replace(/\b(M\d{1,2})\s*[X*×]\s*(\d{1,3})\s*L?\b/g, '$1 $1*$2'); // M5*20L → M5 M5*20
+  }
+
+  // 품목 → 검색용 문자열 (품명 가중치를 위해 따로 보관)
+  function hay(item) {
+    const name = norm(item.name);
+    const other = norm([item.matNote, item.body, item.diaphragm, item.note, item.memo, item.order].join(' '));
+    // 한글명·현장명 열(있으면): 품명과 같은 가중치
+    const ko = norm([item.ko, item.koName, item.krName, item.alias, item.aliases, item['한글명'], item['현장명']].filter(Boolean).join(' '));
+    return { name: name + (ko ? ' ' + ko : ''), other, code: String(item.code || '').toUpperCase() };
+  }
+
+  /* ---------- 3. 검색어 → 조건 목록 ---------- */
+  // 결과: [{ alts:[...], raw }]  — 모든 조건을 만족(AND), 각 조건은 alts 중 하나(OR)
+  function parse(query) {
+    let q = String(query || '').normalize('NFKC').toUpperCase().replace(/[?!.,~]/g, ' ');
+    FILLER.forEach(f => { q = q.split(f.toUpperCase()).join(' '); });
+
+    // 사전 치환: 현장 용어 → {키워드|키워드}
+    const groups = [];
+    dict.forEach(({ alias, alts }) => {
+      if (!/[가-힣]/.test(alias) && alias.length <= 3) {
+        // 짧은 영문 별칭(STS 등)은 단어 경계에서만
+        const re = new RegExp('\\b' + alias + '(?=\\d|\\b)', 'g');
+        q = q.replace(re, () => ' §' + (groups.push(alts) - 1) + '§ ');
+      } else {
+        q = q.split(alias).join(' §' + groups.length + '§ ');
+        // 한글 별칭 자체도 후보에 남김 → 시트의 '한글명/현장명' 열과도 맞춰봄
+        if (q.indexOf('§' + groups.length + '§') >= 0) groups.push(/[가-힣]/.test(alias) ? alts.concat([alias]) : alts);
+      }
+    });
+
+    // 그룹 + 바로 뒤 숫자 등급 붙이기: "§0§ 304" (서스304) → SUS304
+    q = q.replace(/§(\d+)§\s*[-_]?\s*(\d{3}L?)\b/g, (m, g, n) => {
+      const alts = groups[g];
+      return alts.indexOf('SUS') >= 0 ? ' SUS' + n + ' ' : m;
+    });
+    q = norm(q.replace(/§(\d+)§/g, (m, g) => ' {#' + g + '} '));
+
+    const terms = [];
+    q.split(/\s+/).filter(Boolean).forEach(tok => {
+      const g = tok.match(/^\{#(\d+)\}$/);
+      if (g) { terms.push({ alts: groups[g[1]], raw: groups[g[1]].join('|') }); return; }
+      tok = tok.replace(/^[^\w가-힣*-]+|[^\w가-힣*-]+$/g, '');
+      if (/[가-힣]/.test(tok)) tok = tok.replace(JOSA, '');
+      if (!tok) return;
+      terms.push({ alts: [tok], raw: tok });
+    });
+    return terms;
+  }
+
+  /* ---------- 4. 한 조건이 품목에 맞는지 ---------- */
+  function esc(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+  function matchAlt(alt, h) {
+    const text = h.name + ' ' + h.other;
+    // 4자리 숫자만 → 코드 뒤 4자리
+    if (/^\d{4}$/.test(alt)) return h.code.endsWith(alt) ? 3 : 0;
+    // 전체 코드
+    if (/^[A-Z]{2}\d{8}$/.test(alt)) return h.code === alt ? 5 : 0;
+    // 재질 등급 (SUS304 → SUS304, SUS304L 은 매칭 / SUS316 은 제외)
+    if (/^SUS\d{3}L?$/.test(alt)) {
+      const re = new RegExp('\\b' + alt + '(?!\\d)');
+      return re.test(h.name) ? 2 : re.test(h.other) ? 1 : 0;
+    }
+    // SUS 단독 → SUS, SUS304, SUS316 … 전부
+    if (alt === 'SUS') {
+      const re = /\bSUS(\d{3}L?)?\b/;
+      return re.test(h.name) ? 2 : re.test(h.other) ? 1 : 0;
+    }
+    // 숫자만(4자리 아님) → 단독 숫자로만 (예: 304 가 800047304 에 걸리지 않게)
+    if (/^\d+$/.test(alt)) {
+      const re = new RegExp('(^|[^\\d])' + alt + '(?!\\d)');
+      return re.test(h.name) ? 2 : re.test(h.other) ? 1 : 0;
+    }
+    // 볼트 규격 M5 → M5 (M50 제외)
+    if (/^M\d{1,2}(\*\d+)?$/.test(alt)) {
+      const re = new RegExp('\\b' + esc(alt) + '(?![\\d])');
+      return re.test(h.name) ? 2 : re.test(h.other) ? 1 : 0;
+    }
+    // 짧은 영문(3자 이하: TEE, PIN, NUT, PP …) → 단어 시작 경계
+    if (/^[A-Z0-9-]{1,3}$/.test(alt)) {
+      const re = new RegExp('(^|[^A-Z])' + esc(alt) + '(?![A-Z])');
+      return re.test(h.name) ? 2 : re.test(h.other) ? 1 : 0;
+    }
+    // 그 외(긴 영문·한글·구문) → 포함 여부
+    return h.name.indexOf(alt) >= 0 ? 2 : text.indexOf(alt) >= 0 ? 1 : 0;
+  }
+
+  /* ---------- 5. 검색 ---------- */
+  function search(items, query) {
+    const terms = parse(query);
+    if (!terms.length) return [];
+    const out = [];
+    (items || []).forEach(item => {
+      const h = hay(item);
+      let score = 0;
+      for (const t of terms) {
+        let best = 0;
+        for (const a of t.alts) best = Math.max(best, matchAlt(a, h));
+        if (!best) return;          // 모든 조건을 만족해야 함
+        score += best;
+      }
+      if (Number(item.qty) > 0) score += 0.5; // 재고 있는 품목 먼저
+      out.push({ item, score });
+    });
+    out.sort((a, b) => b.score - a.score);
+    if (!out.length) FieldSearch.onMiss(query, terms);
+    return out;
+  }
+
+  const FieldSearch = {
+    search,
+    parse,                                   // 디버깅용: FieldSearch.parse('서스304 어디있어')
+    addTerms(list) { buildDict(list); },     // 시트 '용어사전' 탭 내용 추가
+    onMiss() {},                             // 0건 검색어 기록용으로 교체
+    TERMS
+  };
+  global.FieldSearch = FieldSearch;
+  if (typeof module !== 'undefined') module.exports = FieldSearch;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
 <style>
   :root {
     --concrete: #E4E6E1; --surface: #F7F8F5; --ink: #1D2422; --muted: #66706C; --line: #C9CEC8;
@@ -61,7 +294,8 @@
   .code { font-family: var(--num); font-weight: 600; font-size: 1rem; color: var(--muted); letter-spacing: .02em; line-height: 1.1; }
   .code b { font-weight: 700; font-size: 1.6rem; color: var(--ink); }
   .name { font-weight: 500; overflow-wrap: anywhere; }
-  .koname { font-size: .9rem; color: var(--steel); font-weight: 600; overflow-wrap: anywhere; }
+  .koname { font-size: 1rem; color: var(--ink); font-weight: 700; overflow-wrap: anywhere; line-height: 1.3; }
+  .name.en { font-size: .8rem; font-weight: 400; color: var(--muted); line-height: 1.3; }
   .sub { color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; }
   .sub .multi { color: var(--steel); font-weight: 500; }
   .sub .flag { color: var(--out); }
@@ -79,9 +313,6 @@
   .quickbtns { display: flex; gap: 6px; width: 100%; }
   .quickbtns button { flex: 1; height: 40px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-weight: 700; cursor: pointer; }
   .quickbtns button:active { background: var(--line); }
-  .modetoggle { display: flex; gap: 0; width: 100%; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
-  .modetoggle button { flex: 1; height: 36px; border: none; background: var(--surface); cursor: pointer; font-size: .85rem; }
-  .modetoggle button.on { background: var(--steel); color: #fff; font-weight: 700; }
 
   .edit { grid-column: 1 / -1; display: none; gap: 8px; align-items: center; padding-top: 4px; flex-wrap: wrap; }
   .item.open .edit { display: flex; }
@@ -94,6 +325,30 @@
   .confirm:disabled { opacity: .45; cursor: not-allowed; }
   .preview { width: 100%; font-size: .85rem; color: var(--muted); }
   .readonly .edit { display: none !important; }
+  .uselabel { width: 100%; font-size: .85rem; font-weight: 700; color: var(--ink); margin-bottom: -2px; }
+  .delta.use { color: var(--out); border-color: var(--out); }
+  .histbtn { height: 40px; padding: 0 14px; border: 1px solid var(--steel); border-radius: 6px; background: var(--surface); color: var(--steel); font-weight: 700; cursor: pointer; }
+  .histbtn[aria-pressed="true"] { background: var(--steel); color: #fff; }
+  #histModal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: grid; place-items: center; z-index: 60; padding: 16px; }
+  #histModal[hidden] { display: none; }
+  #histModal .modal-box { background: var(--surface); color: var(--ink); max-width: 460px; padding: 0; display: flex; flex-direction: column; }
+  .hist-head { padding: 14px 16px 10px; border-bottom: 1px solid var(--line); display: grid; gap: 2px; }
+  .hist-head .row { display: flex; justify-content: space-between; align-items: start; gap: 8px; }
+  .hist-head h2 { margin: 0; font-size: 1.05rem; }
+  .hist-head .x { border: none; background: none; font-size: 1.2rem; color: var(--muted); cursor: pointer; padding: 0 4px; }
+  .hist-head .en { font-size: .8rem; color: var(--muted); }
+  .hist-sum { display: flex; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  .hist-sum div { flex: 1; background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  .hist-sum b { display: block; font-family: var(--num); font-size: 1.5rem; line-height: 1.1; }
+  .hist-sum span { font-size: .75rem; color: var(--muted); }
+  .hist-list { overflow-y: auto; max-height: 55vh; }
+  .hrow { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 10px 16px; border-bottom: 1px solid var(--line); font-size: .9rem; }
+  .hrow .t { color: var(--muted); font-size: .8rem; }
+  .hrow .c { font-family: var(--num); font-weight: 700; font-size: 1.2rem; text-align: right; grid-row: span 2; align-self: center; }
+  .hrow .c.neg { color: var(--out); } .hrow .c.pos { color: var(--in); }
+  .hrow .n { color: var(--muted); font-size: .8rem; grid-column: 1; }
+  .hist-foot { padding: 10px 16px; }
+  .hist-foot button { width: 100%; height: 42px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); cursor: pointer; font-weight: 700; }
 
   .batchHead { display: flex; align-items: baseline; gap: 10px; margin: 18px 2px 6px; padding-bottom: 4px; border-bottom: 2px solid var(--ink); }
   .batchHead:first-child { margin-top: 4px; }
@@ -135,18 +390,20 @@
   .photo .cap b { color: var(--ink); font-weight: 500; }
   #sortSel { font-size: .85rem; padding: 6px 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); color: var(--ink); }
   .rowbtns { display: flex; gap: 6px; margin-top: 8px; }
-  .rowbtns button { font-size: .8rem; padding: 5px 10px; }
+  .rowbtns button { font-size: .8rem; padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); cursor: pointer; }
   .rowbtns .danger { color: var(--out); border-color: var(--out); }
   #itemModal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: grid; place-items: center; z-index: 50; padding: 16px; }
   #itemModal[hidden] { display: none; }
-  .modal-box { background: var(--bg); border-radius: 10px; padding: 18px; width: 100%; max-width: 420px; max-height: 90vh; overflow-y: auto; }
+  .modal-box { background: var(--surface); color: var(--ink); border-radius: 10px; padding: 18px; width: 100%; max-width: 420px; max-height: 90vh; overflow-y: auto; }
   .modal-box h2 { margin: 0 0 12px; font-size: 1.1rem; }
   .modal-box label { display: grid; gap: 4px; margin-bottom: 10px; font-size: .85rem; color: var(--muted); }
   .modal-box input { font-size: 1rem; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); color: var(--ink); }
   .modal-box .err { color: var(--out); font-size: .85rem; min-height: 1.2em; margin-bottom: 6px; }
   .modal-btns { display: flex; gap: 8px; }
-  .modal-btns button { flex: 1; padding: 10px; font-size: 1rem; }
+  .modal-btns button { flex: 1; padding: 10px; font-size: 1rem; border: none; border-radius: 6px; background: var(--steel); color: #fff; font-weight: 700; cursor: pointer; }
   .modal-btns .ghost { background: none; border: 1px solid var(--line); color: var(--ink); }
+  #galModal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: grid; place-items: center; z-index: 50; padding: 16px; }
+  #galModal[hidden] { display: none; }
   #gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; }
   #gallery[hidden] { display: none; }
   .gcell { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; cursor: pointer; background: var(--field); }
@@ -200,8 +457,9 @@
     <h2 id="modalTitle">새 품목 등록</h2>
     <label>SEA-CODE*<input id="f_code" autocomplete="off"></label>
     <label>규격(이름)*<input id="f_name" autocomplete="off"></label>
+    <label>한글명<input id="f_ko" autocomplete="off" placeholder="예: 둥근머리 볼트 M3×10 (PEEK)"></label>
+    <label>현장명 (현장에서 부르는 이름, 검색용)<input id="f_alias" autocomplete="off"></label>
     <label>수량<input id="f_qty" type="number" inputmode="numeric" value="0"></label>
-    <label>입고수량<input id="f_received" type="number" inputmode="numeric" placeholder="비우면 수량과 같게"></label>
     <label>위치<input id="f_location" autocomplete="off" placeholder="예: 1-1"></label>
     <label>발주번호<input id="f_order" autocomplete="off"></label>
     <label>배치<input id="f_batch" autocomplete="off"></label>
@@ -212,6 +470,22 @@
     <label>메모<input id="f_memo" autocomplete="off"></label>
     <div class="err" id="modalErr"></div>
     <div class="modal-btns"><button id="modalSave">저장</button><button id="modalCancel" class="ghost">취소</button></div>
+  </div>
+</div>
+
+<div id="histModal" hidden role="dialog" aria-modal="true" aria-labelledby="histTitle">
+  <div class="modal-box">
+    <div class="hist-head">
+      <div class="row"><h2 id="histTitle"></h2><button class="x" id="histX" aria-label="닫기">✕</button></div>
+      <div class="en" id="histSub"></div>
+    </div>
+    <div class="hist-sum">
+      <div><b id="histUsed">0</b><span>총 사용</span></div>
+      <div><b id="histLeft">0</b><span>남은 수량</span></div>
+      <div><b id="histCount">0</b><span>기록 건수</span></div>
+    </div>
+    <div class="hist-list" id="histList"></div>
+    <div class="hist-foot"><button id="histClose">닫기</button></div>
   </div>
 </div>
 
@@ -229,7 +503,7 @@
 </div>
 
 <script>
-  /* ▼▼ 앱스 스크립트 배포 후 받은 웹 앱 주소를 여기에 붙여넣으세요 ▼▼ */
+  /* ▼▼ 재고 API(Apps Script 웹 앱) 주소 ▼▼ */
   const API_URL = 'https://script.google.com/macros/s/AKfycbyQ1KO3FjXO27BBIFAvZqdtZlp-0ICYIYLjSgV6wBZz0uoReGzcHCNy5NyIDvqclA8/exec';
   /* ▲▲▲▲ */
 
@@ -242,9 +516,8 @@
   };
 
   let user = store.get('user');
-  let items = [], logs = [], openId = null, busy = false; const deltas = {};
-  const inputModes = {};  // rid -> 'use' | 'left'
-  const getMode = rid => inputModes[rid] || store.get('inputMode') || 'use';
+  let items = [], logs = [], openId = null, busy = false;
+  const deltas = {};  // rid -> 사용 개수 (양수). 저장할 때 -사용개수로 기록
 
   async function api(action, body) {
     const res = await fetch(API_URL, {
@@ -297,7 +570,15 @@
   function matches(i, q) {
     if (!q) return true;
     if (/^\d{1,4}$/.test(q)) return last4(i.code).startsWith(q);
-    return [i.code, i.name, i.location, i.order, i.batch].join(' ').toLowerCase().includes(q);
+    return [i.code, i.name, i.ko, i.alias, i.location, i.order, i.batch].join(' ').toLowerCase().includes(q);
+  }
+  // 한글 검색: 한글명·현장명에 그대로 들어 있으면 먼저, 그다음 현장 용어 사전 검색 결과
+  function koSearch(q) {
+    const key = q.replace(/\s+/g, '');
+    const direct = items.filter(i => [i.ko, i.alias].join(' ').replace(/\s+/g, '').includes(key));
+    const fs = window.FieldSearch ? FieldSearch.search(items, q).map(r => r.item) : [];
+    const seen = new Set(direct.map(i => i.rid));
+    return direct.concat(fs.filter(i => !seen.has(i.rid)));
   }
   function codeHtml(code) {
     const m = String(code).match(/^(.*?)(\d{4})$/);
@@ -305,8 +586,8 @@
   }
 
   // 이미지: 드라이브 파일 ID → 썸네일 주소 (첫 주소가 안 뜨면 대체 주소로)
-  const imgUrl = (id, w) => `https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w${w}`;
-  const imgAlt = (id, w) => `https://lh3.googleusercontent.com/d/${encodeURIComponent(id)}=w${w}`;
+  const imgUrl = (id, w) => 'https:' + '//drive.google.com/thumbnail?id=' + encodeURIComponent(id) + '&sz=w' + w;
+  const imgAlt = (id, w) => 'https:' + '//lh3.googleusercontent.com/d/' + encodeURIComponent(id) + '=w' + w;
   const CONF = {
     '정확모델': ['정확', '같은 품번의 제품 사진'],
     '동일타입 대표': ['유사', '같은 시리즈 대표 사진, 사이즈·재질·옵션은 다를 수 있음'],
@@ -320,9 +601,8 @@
     const rawQ = $('#search').value.trim();
     const q = rawQ.toLowerCase();
     let list;
-    if (/[가-힣]/.test(rawQ) && window.FieldSearch) {
-      // 한글 검색: 현장 용어 사전으로 변환 후 검색
-      list = FieldSearch.search(items, rawQ).map(r => r.item);
+    if (/[가-힣]/.test(rawQ)) {
+      list = koSearch(rawQ);
     } else {
       list = items.filter(i => matches(i, q));
     }
@@ -367,30 +647,27 @@
           : `<div class="thumb none" data-act="open">사진<br>없음</div>`}
         <div class="info" role="button" tabindex="0" data-act="open" aria-expanded="${openId === i.rid}">
           <div class="code">${codeHtml(i.code)}</div>
-          <div class="name">${esc(i.name)}</div>
-          ${i.ko ? `<div class="koname">${esc(i.ko)}</div>` : ''}
+          ${i.ko ? `<div class="koname">${esc(i.ko)}</div><div class="name en">${esc(i.name)}</div>` : `<div class="name">${esc(i.name)}</div>`}
           <div class="sub">${multi}${esc(meta)}${i.memo ? `<br><span class="${/실물 없음|확인 필요/.test(i.memo) ? 'flag' : ''}">${esc(i.memo)}</span>` : ''}${i.lastOut ? `<br><span class="lastout">최근 반출 ${esc(i.lastOut.time)} ${esc(i.lastOut.user)} ${i.lastOut.change}${i.lastOut.note ? ', ' + esc(i.lastOut.note) : ''}</span>` : ''}</div>
         </div>
         <div class="qty ${i.qty === 0 ? 'zero' : ''}" data-act="open">${i.qty}<small>개</small>${i.received !== null && i.received !== undefined ? `<span class="recv">/ ${i.received}</span><div class="pbar"><i style="width:${i.received > 0 ? Math.round(i.qty / i.received * 100) : 0}%"></i></div><span class="status ${i.qty === i.received ? 'sealed' : i.qty === 0 ? 'empty' : 'opened'}">${i.qty === i.received ? '미개봉' : i.qty === 0 ? '소진' : '개봉'}</span>` : ''}</div>
         <div class="edit">
           ${i.img ? `<div class="photo"><img loading="lazy" alt="${esc(i.name)}" data-id="${esc(i.img)}" data-w="800" src="${imgUrl(i.img, 800)}" onerror="imgFallback(this)">
             <div class="cap"><b>${esc(i.conf || '이미지')}</b>${confOf(i.conf)[1] ? ', ' + esc(confOf(i.conf)[1]) : ''}${i.src ? `<br>출처: ${esc(i.src)}` : ''}</div></div>` : ''}
-          <div class="modetoggle">
-            <button class="${getMode(i.rid) === 'use' ? 'on' : ''}" data-mode="use">사용 개수</button>
-            <button class="${getMode(i.rid) === 'left' ? 'on' : ''}" data-mode="left">남은 개수</button>
-          </div>
+          <div class="uselabel">사용 개수</div>
           <div class="quickbtns">
-            <button data-act="qminus" data-v="-1">−1</button>
-            <button data-act="qminus" data-v="-5">−5</button>
-            <button data-act="qminus" data-v="-10">−10</button>
+            <button data-act="quse" data-v="1">+1</button>
+            <button data-act="quse" data-v="5">+5</button>
+            <button data-act="quse" data-v="10">+10</button>
             <button data-act="qall">전량</button>
           </div>
-          <button class="step minus" data-act="minus" aria-label="1개 빼기">−</button>
-          <input class="delta ${d < 0 ? 'neg' : d > 0 ? 'pos' : ''}" type="number" inputmode="numeric" value="${getMode(i.rid) === 'left' && d !== 0 ? i.qty + d : d}" data-act="delta" aria-label="변동 수량">
-          <button class="step plus" data-act="plus" aria-label="1개 더하기">+</button>
+          <button class="step plus" data-act="useDown" aria-label="사용 개수 1 줄이기">−</button>
+          <input class="delta ${d > 0 ? 'use' : ''}" type="number" inputmode="numeric" min="0" max="${i.qty}" value="${d}" data-act="delta" aria-label="사용 개수">
+          <button class="step minus" data-act="useUp" aria-label="사용 개수 1 늘리기">+</button>
           <input class="note" placeholder="메모 (현장, 용도 등)" data-act="note">
-          <button class="confirm" data-act="confirm" ${d === 0 ? 'disabled' : ''}>확인</button>
-          <div class="preview">${d === 0 ? '− 반출, + 입고' : `${i.qty} → ${i.qty + d}개 (${d > 0 ? '+' : ''}${d})`}</div>
+          <button class="confirm" data-act="confirm" ${d === 0 ? 'disabled' : ''}>사용 기록</button>
+          <div class="preview">${d === 0 ? `현재 ${i.qty}개` : `${d}개 사용 → 남는 수량 ${i.qty - d}개`}</div>
+          <button class="histbtn" data-act="hist" aria-pressed="${histRid === i.rid}">📋 사용 내역 ${histRid === i.rid ? '닫기' : '보기'}</button>
           ${i.createdAt ? `<div class="sub">등록: ${esc(i.createdAt)}</div>` : ''}
           <div class="rowbtns"><button data-act="edit">정보 수정</button><button class="danger" data-act="del">삭제</button>${i.img ? '' : '<button data-act="upload">📷 사진 업로드</button>'}</div>
         </div>
@@ -408,27 +685,26 @@
   }
 
   /* ---------- 조작 ---------- */
+  // 사용 개수: 0 ~ 현재 수량
   function setDelta(id, v) {
     const keep = document.querySelector(`.item[data-id="${CSS.escape(id)}"] .note`)?.value || '';
-    deltas[id] = Number.isFinite(v) ? Math.trunc(v) : 0; render();
-    const n = document.querySelector(`.item[data-id="${CSS.escape(id)}"] .note`); if (n) n.value = keep;
+    const it = items.find(x => x.rid === id);
+    const max = it ? Math.max(0, it.qty) : 0;
+    let n = Number.isFinite(v) ? Math.trunc(v) : 0;
+    if (n > max) { n = max; toast(`남은 수량(${max}개)보다 많이 쓸 수 없습니다.`, true); }
+    deltas[id] = Math.max(0, n); render();
+    const el = document.querySelector(`.item[data-id="${CSS.escape(id)}"] .note`); if (el) el.value = keep;
   }
   $('#list').addEventListener('click', e => {
-    const modeBtn = e.target.closest('[data-mode]');
-    if (modeBtn) {
-      const id = modeBtn.closest('.item').dataset.id;
-      const mode = modeBtn.dataset.mode;
-      inputModes[id] = mode; store.set('inputMode', mode);
-      deltas[id] = 0; render(); return;
-    }
     const el = e.target.closest('[data-act]'); if (!el) return;
     const id = el.closest('.item').dataset.id, act = el.dataset.act;
     if (act === 'open') { openId = openId === id ? null : id; render(); }
     if (act === 'editloc') { startLocEdit(id, el); return; }
-    if (act === 'minus') setDelta(id, (deltas[id] || 0) - 1);
-    if (act === 'plus') setDelta(id, (deltas[id] || 0) + 1);
-    if (act === 'qminus') setDelta(id, (deltas[id] || 0) + Number(el.dataset.v));
-    if (act === 'qall') { const it = items.find(x => x.rid === id); if (it) setDelta(id, -it.qty); }
+    if (act === 'useUp') setDelta(id, (deltas[id] || 0) + 1);
+    if (act === 'useDown') setDelta(id, (deltas[id] || 0) - 1);
+    if (act === 'quse') setDelta(id, (deltas[id] || 0) + Number(el.dataset.v));
+    if (act === 'qall') { const it = items.find(x => x.rid === id); if (it) setDelta(id, it.qty); }
+    if (act === 'hist') { histRid === id ? closeHist() : openHist(id); }
     if (act === 'confirm') confirmChange(id, el);
     if (act === 'edit') openModal(id);
     if (act === 'del') deleteItem(id);
@@ -438,15 +714,7 @@
   $('#list').addEventListener('change', e => {
     if (e.target.dataset.act === 'delta') {
       const id = e.target.closest('.item').dataset.id;
-      const it = items.find(x => x.rid === id);
-      const v = Number(e.target.value);
-      if (getMode(id) === 'left' && it) {
-        // 남은 개수 모드: 입력값은 목표 남은 수량 (0 이상, 현재수량 초과 허용 for 복구)
-        const left = Math.max(0, Math.trunc(v) || 0);
-        setDelta(id, left - it.qty);
-      } else {
-        setDelta(id, v);
-      }
+      setDelta(id, Number(e.target.value));
     }
   });
   $('#search').addEventListener('input', () => { openId = null; if (galMode) renderGallery(); else render(); });
@@ -461,9 +729,7 @@
   function renderGallery() {
     const rawQ = $('#search').value.trim();
     const q = rawQ.toLowerCase();
-    const base = (/[가-힣]/.test(rawQ) && window.FieldSearch)
-      ? FieldSearch.search(items, rawQ).map(r => r.item)
-      : items.filter(i => matches(i, q));
+    const base = /[가-힣]/.test(rawQ) ? koSearch(rawQ) : items.filter(i => matches(i, q));
     const list = base.filter(i => i.img);
     $('#gallery').innerHTML = list.length ? list.map(i => `
       <div class="gcell" data-rid="${esc(i.rid)}">
@@ -533,16 +799,17 @@
     const it = rid ? items.find(i => i.rid === rid) : null;
     $('#f_code').value = it ? it.code : '';
     $('#f_name').value = it ? it.name : '';
+    $('#f_ko').value = it ? (it.ko || '') : '';
+    $('#f_alias').value = it ? (it.alias || '') : '';
     $('#f_qty').value = it ? it.qty : 0;
-    $('#f_received').value = it && it.received !== null && it.received !== undefined ? it.received : '';
-    $('#f_location').value = it ? it.location : '';
-    $('#f_order').value = it ? it.order : '';
-    $('#f_batch').value = it ? it.batch : '';
-    $('#f_body').value = it ? it.body : '';
-    $('#f_diaphragm').value = it ? it.diaphragm : '';
-    $('#f_matNote').value = it ? it.matNote : '';
-    $('#f_note').value = it ? it.note : '';
-    $('#f_memo').value = it ? it.memoRaw : '';
+    $('#f_location').value = it ? (it.location ?? '') : '';
+    $('#f_order').value = it ? (it.order ?? '') : '';
+    $('#f_batch').value = it ? (it.batch ?? '') : '';
+    $('#f_body').value = it ? (it.body ?? '') : '';
+    $('#f_diaphragm').value = it ? (it.diaphragm ?? '') : '';
+    $('#f_matNote').value = it ? (it.matNote ?? '') : '';
+    $('#f_note').value = it ? (it.note ?? '') : '';
+    $('#f_memo').value = it ? (it.memoRaw ?? '') : '';
     $('#itemModal').hidden = false;
     $('#f_code').focus();
   }
@@ -553,12 +820,12 @@
   $('#modalSave').addEventListener('click', async () => {
     const item = {
       code: $('#f_code').value.trim(), name: $('#f_name').value.trim(),
+      ko: $('#f_ko').value.trim(), alias: $('#f_alias').value.trim(),
       qty: Number($('#f_qty').value) || 0, location: $('#f_location').value.trim(),
       order: $('#f_order').value.trim(), batch: $('#f_batch').value.trim(),
       body: $('#f_body').value.trim(), diaphragm: $('#f_diaphragm').value.trim(),
       matNote: $('#f_matNote').value.trim(), note: $('#f_note').value.trim(),
-      memo: $('#f_memo').value.trim(),
-      received: $('#f_received').value === '' ? null : Number($('#f_received').value)
+      memo: $('#f_memo').value.trim()
     };
     if (!item.code || !item.name) { $('#modalErr').textContent = 'SEA-CODE와 규격(이름)을 입력하세요.'; return; }
     const btn = $('#modalSave'); btn.disabled = true; btn.textContent = '저장 중…';
@@ -618,19 +885,64 @@
   });
 
   async function confirmChange(rid, btn) {
-    const change = deltas[rid] || 0;
+    const used = deltas[rid] || 0;
+    if (used <= 0) return;
     const note = btn.closest('.item').querySelector('.note').value.trim();
     btn.disabled = true; btn.textContent = '저장 중…';
     try {
-      const r = await api('update', { user, rid, change, note });
+      const r = await api('update', { user, rid, change: -used, note });
       const it = items.find(i => i.rid === r.rid); if (it) it.qty = r.qty;
-      delete deltas[rid]; openId = null; render();
-      toast(`저장됨: ${r.code} ${change > 0 ? '+' : ''}${change} → ${r.qty}개`);
+      delete deltas[rid]; openId = null; if (histRid === rid) closeHist(); render();
+      toast(`저장됨: ${r.code} ${used}개 사용, 남은 수량 ${r.qty}개`);
       load();
     } catch (e) {
-      toast(e.message, true); btn.disabled = false; btn.textContent = '확인'; load();
+      toast(e.message, true); btn.disabled = false; btn.textContent = '사용 기록'; load();
     }
   }
+
+  /* ---------- 품목별 사용 내역 팝업 (토글) ---------- */
+  let histRid = null;
+  async function fetchItemLogs(it) {
+    try {
+      return (await api('itemLogs', { rid: it.rid })).logs || [];
+    } catch (e) {
+      // API가 아직 itemLogs를 모르면(새 버전 배포 전) 엑셀용 전체 기록에서 골라냄
+      const d = await api('export');
+      return (d.log || []).slice(1)
+        .filter(r => String(r[2]) === String(it.code) && String(r[3]) === String(it.name))
+        .reverse()
+        .map(r => ({ time: r[0], user: r[1], change: Number(r[4]), after: Number(r[5]), note: r[6] || '' }));
+    }
+  }
+  async function openHist(rid) {
+    const it = items.find(i => i.rid === rid); if (!it) return;
+    histRid = rid; render();
+    $('#histTitle').textContent = it.ko || it.name;
+    $('#histSub').textContent = `${it.code}${it.ko ? ' · ' + it.name : ''}${it.location ? ' · 위치 ' + it.location : ''}`;
+    $('#histUsed').textContent = '…'; $('#histLeft').textContent = it.qty; $('#histCount').textContent = '…';
+    $('#histList').innerHTML = '<div class="empty">불러오는 중…</div>';
+    $('#histModal').hidden = false;
+    try {
+      const rows = await fetchItemLogs(it);
+      if (histRid !== rid) return;
+      const used = rows.filter(r => r.change < 0).reduce((a, r) => a - r.change, 0);
+      $('#histUsed').textContent = used;
+      $('#histCount').textContent = rows.length;
+      $('#histList').innerHTML = rows.length ? rows.map(r => `
+        <div class="hrow">
+          <span>${esc(r.user)} <span class="t">${esc(r.time)}</span></span>
+          <span class="c ${r.change < 0 ? 'neg' : 'pos'}">${r.change < 0 ? `${-r.change}개 사용` : `+${r.change} 입고`}</span>
+          <span class="n">남은 수량 ${esc(r.after)}개${r.note ? ' · ' + esc(r.note) : ''}</span>
+        </div>`).join('') : '<div class="empty">아직 사용 기록이 없습니다.</div>';
+    } catch (err) {
+      $('#histList').innerHTML = `<div class="empty">불러오기 실패: ${esc(err.message)}</div>`;
+    }
+  }
+  function closeHist() { histRid = null; $('#histModal').hidden = true; render(); }
+  $('#histX').addEventListener('click', closeHist);
+  $('#histClose').addEventListener('click', closeHist);
+  $('#histModal').addEventListener('click', e => { if (e.target.id === 'histModal') closeHist(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && histRid) closeHist(); });
 
   /* ---------- 엑셀 다운로드 (원본 RDM_PBCR_Room_Materials_list 양식) ---------- */
   // 원본 서식: 맑은 고딕 12, 머리글 연두(D7E4BD)·재질/비고 머리글 남색(1F4E78)+흰 글씨,

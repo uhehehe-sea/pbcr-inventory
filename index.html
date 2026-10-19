@@ -902,7 +902,7 @@
 
 <script>
   /* ▼▼ 재고 API(Apps Script 웹 앱) 주소 — GitHub 등 외부에 올릴 때만 사용. Apps Script 안에서는 자동으로 google.script.run 사용 ▼▼ */
-  const API_URL = 'https://script.google.com/macros/s/AKfycbyQ1KO3FjXO27BBIFAvZqdtZlp-0ICYIYLjSgV6wBZz0uoReGzcHCNy5NyIDvqclA8/exec';
+  const API_URL = 'https://script.google.com/macros/s/AKfycbzMdFhru-2JC3U9Udnq63s8OK4Svt0rHTGgby6Gyes7k7Fvos5QwCo_BMltlWUXi-J1/exec';   // 재고앱_멀티사이트_API (PBCR 고정)
   /* ▲▲▲▲ */
   const IS_GAS = !!(window.google && google.script && google.script.run);
   const COUNT_OLD_DAYS = 30;   // 이 일수보다 오래 안 센 품목은 '실사 필요' (실사 UI 자체는 receive.html로 이동)
@@ -916,6 +916,7 @@
   };
 
   let user = store.get('user');
+  const site = { id: 'PBCR', name: 'PBCR', map: true };   // 이 화면은 PBCR 전용 — 멀티사이트 API에 PBCR로 고정 연결
   let items = [], logs = [], openId = null, busy = false, tab = 'stock';
   let filter = { kind: '', loc: '' };   // kind: low | zero | old
   const deltas = {};  // rid -> 사용 개수 (양수). 저장할 때 -사용개수로 기록
@@ -947,6 +948,21 @@
       tx.onerror = () => rej(tx.error);
     });
   }
+  // 읽기·수정·쓰기를 한 트랜잭션으로 — 전송하는 동안 새로 쌓인 기록이 덮어써져 사라지지 않게
+  async function idbUpdate(key, fn) {
+    const db = await idb();
+    return new Promise((res, rej) => {
+      const tx = db.transaction('kv', 'readwrite'), st = tx.objectStore('kv');
+      let out;
+      const q = st.get(key);
+      q.onsuccess = () => { out = fn(q.result); st.put(out, key); };
+      tx.oncomplete = () => res(out);
+      tx.onerror = () => rej(tx.error);
+    });
+  }
+  const snapKey = () => 'snapshot:' + (site && site.id ? site.id : '-');   // 재고 스냅샷은 사이트별로 따로
+  const recSite = x => (x && x.params && x.params.siteId) || 'PBCR';       // siteId 없는 예전 기록 = PBCR
+  let offlineNotified = false;
   function newId() {
     return (crypto.randomUUID && crypto.randomUUID()) ||
       Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -971,63 +987,53 @@
       else el.hidden = true;
     } catch (_) {}
   }
-  // 오프라인 기록: 로컬에 즉시 반영 + outbox 저장. api() 응답 형태로 반환.
+  // 오프라인 사용 기록: 화면에 바로 반영 + 전송 대기함(outbox)에 저장. api() 응답 형태로 반환.
+  // 오프라인 지원은 '사용 기록'만 — 이동·등록·수정·사진은 온라인에서만
   async function queueOffline(req) {
+    if (req.action !== 'update') throw new Error('오프라인에서는 사용 기록만 저장할 수 있습니다.');
+    if (!site || !site.id) throw new Error('사이트가 선택되지 않았습니다.');
     const at = new Date().toISOString();
-    const id = newId();
-    const box = (await idbGet('outbox')) || [];
-    let res;
-    if (req.action === 'update') {
-      const it = items.find(i => String(i.rid) === String(req.rid));
-      if (!it) throw new Error('품목을 찾을 수 없습니다.');
-      const change = Number(req.change);
-      const after = (Number(it.qty) || 0) + change;
-      if (after < 0) throw new Error('재고가 부족합니다. 현재 ' + it.qty + '개입니다.');
-      it.qty = after;
-      box.push({ id, at, action: 'update',
-        params: { user: req.user, rid: String(req.rid), change, note: req.note || '', type: req.type, reason: req.reason || '' } });
-      res = { ok: true, rid: String(req.rid), qty: after, code: it.code };
-    } else if (req.action === 'count') {
-      let adjusted = 0, checked = 0;
-      const counts = (req.counts || []).map(c => {
-        const it = items.find(i => String(i.rid) === String(c.rid));
-        if (!it) return null;
-        const qty = Math.trunc(Number(c.qty));
-        if (!Number.isFinite(qty) || qty < 0) return null;
-        if (qty !== (Number(it.qty) || 0)) adjusted++; else checked++;
-        it.qty = qty; it.lastCount = at.slice(0, 10);
-        return { rid: String(c.rid), qty, reason: c.reason || '' };
-      }).filter(Boolean);
-      if (!counts.length) throw new Error('입력한 수량이 없습니다.');
-      box.push({ id, at, action: 'count', params: { user: req.user, location: req.location || '', counts } });
-      res = { ok: true, adjusted, checked };
-    } else {
-      throw new Error('오프라인에서는 지원하지 않는 기능입니다.');
-    }
-    await idbSet('outbox', box);
-    await idbSet('snapshot', { items, logs, savedAt: at });
+    const it = items.find(i => String(i.rid) === String(req.rid));
+    if (!it) throw new Error('품목을 찾을 수 없습니다.');
+    const change = Number(req.change);
+    const after = (Number(it.qty) || 0) + change;
+    if (after < 0) throw new Error('재고가 부족합니다. 현재 ' + it.qty + '개입니다.');
+    const rec = { id: req.opId || newId(), at, action: 'update',
+      params: { siteId: site.id, user: req.user || user, rid: String(req.rid), change, note: req.note || '' } };
+    await idbUpdate('outbox', box => (box || []).filter(x => x.id !== rec.id).concat([rec]));
+    it.qty = after;
+    try { await idbSet(snapKey(), { items, logs, savedAt: at }); } catch (_) {}
     renderAll();
     renderPendingBadge();
-    return res;
+    return { ok: true, rid: String(req.rid), qty: after, code: it.code, queued: true };
+  }
+  // 서버에서 받은 수량 위에, 아직 전송 안 된 이 사이트의 사용 기록을 얹어서 보여 줌
+  async function applyPending(list) {
+    let box = [];
+    try { box = (await idbGet('outbox')) || []; } catch (_) { return list; }
+    box.filter(x => x.action === 'update' && site && recSite(x) === site.id).forEach(x => {
+      const it = list.find(i => String(i.rid) === String(x.params.rid));
+      if (it) it.qty = Math.max(0, (Number(it.qty) || 0) + Number(x.params.change || 0));
+    });
+    return list;
   }
   let flushing = false;
   async function flush() {
-    if (flushing || IS_GAS || !navigator.onLine) return;
+    if (flushing || !navigator.onLine) return;
     let box = [];
     try { box = (await idbGet('outbox')) || []; } catch (_) { return; }
     if (!box.length) return;
     flushing = true;
     try {
-      const data = await apiRaw('syncRecords', { items: box });
+      const data = await apiRaw('syncRecords', { items: box.slice(0, 200) });
       const sent = new Set(data.accepted || []);
-      const remain = box.filter(x => !sent.has(x.id));
-      await idbSet('outbox', remain);
+      await idbUpdate('outbox', cur => (cur || []).filter(x => !sent.has(x.id)));
       renderPendingBadge();
-      if (data.warnings && data.warnings.length) {
-        toast('동기화 경고 ' + data.warnings.length + '건', true);
-      }
+      const warns = data.warnings || [];
+      if (warns.length) TOAST.push('err', '동기화 확인 필요 ' + warns.length + '건', { sub: warns.slice(0, 3).join(' / '), dur: 12000 });
       if (sent.size) { toast('오프라인 기록 ' + sent.size + '건 전송됨'); load(); }
-    } catch (e) { /* 다음 기회에 재시도 */ }
+      if (data.more) setTimeout(flush, 1000);
+    } catch (e) { /* 다음 연결 때 다시 시도 */ }
     finally { flushing = false; }
   }
   window.addEventListener('online', () => { setSyncLabel(); flush(); });
@@ -1054,8 +1060,14 @@
   })();
   /* =============== 오프라인 모드 끝 =============== */
 
+  // 서버가 거절한 것(재고 부족 등)과 연결이 안 된 것을 구분 — 연결 문제만 전송 대기함으로 보냄
+  const netErr = msg => { const e = new Error(msg || '인터넷 연결을 확인하세요.'); e.network = true; return e; };
+  const API_TIMEOUT = 20000;   // 사용 기록 저장이 이 시간 안에 응답이 없으면 대기함으로 (신호 약한 창고)
+  const withTimeout = p => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(netErr('서버 응답이 없습니다.')), API_TIMEOUT))]);
   function apiRaw(action, body) {
     const req = Object.assign({ action }, body || {});
+    req.siteId = site.id;
+    if (user && !req.user) req.user = user;
     if (IS_GAS) {
       return new Promise((resolve, reject) => {
         google.script.run
@@ -1064,19 +1076,22 @@
             else if (!data.ok) reject(new Error(data.error || '요청 실패'));
             else resolve(data);
           })
-          .withFailureHandler(err => reject(new Error((err && err.message) || String(err))))
+          .withFailureHandler(err => reject(netErr((err && err.message) || String(err))))
           .apiCall(JSON.stringify(req));
       });
     }
     return fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(req) })
-      .then(r => r.json()).then(data => { if (!data.ok) throw new Error(data.error || '요청 실패'); return data; });
+      .catch(e => { throw netErr(e.message); })
+      .then(r => r.json().catch(() => { throw netErr('서버 응답을 읽지 못했습니다.'); }))
+      .then(data => { if (!data.ok) throw new Error(data.error || '요청 실패'); return data; });
   }
-  // 오프라인이면 update/count를 로컬 큐에 저장
-  function api(action, body) {
-    if (!IS_GAS && (action === 'update' || action === 'count') && !navigator.onLine) {
-      return queueOffline(Object.assign({ action }, body || {}));
-    }
-    return apiRaw(action, body);
+  // 사용 기록(update): 기록마다 고유 번호(opId)를 붙이고, 오프라인이거나 연결이 실패하면 전송 대기함에 저장
+  async function api(action, body) {
+    if (action !== 'update') return apiRaw(action, body);
+    const req = Object.assign({}, body || {}, { opId: (body && body.opId) || newId() });
+    if (!navigator.onLine) return queueOffline(Object.assign({ action }, req));
+    try { return await withTimeout(apiRaw(action, req)); }
+    catch (e) { if (e.network) return queueOffline(Object.assign({ action }, req)); throw e; }
   }
 
   /* ---------- 알림: Lucian UX/UI Prompt #070 겹쳐 쌓이는 토스트 · MIT License (c) 2026 Seokwoooo ---------- */
@@ -1186,40 +1201,39 @@
 
   // 처음 불러오는 동안: Lucian UX/UI Prompt #079 뼈대 shimmer · MIT License (c) 2026 Seokwoooo
   const SKEL = '<div class="skel" aria-hidden="true"><span class="sk sk-loc"></span><span class="sk sk-th"></span><span><span class="sk sk-l1"></span><span class="sk sk-l2"></span></span><span class="sk sk-q"></span></div>';
-  async function load() {
-    if (busy) return; busy = true;
-    if (!items.length && tab === 'stock') { $('#list').innerHTML = SKEL.repeat(6); $('#count').textContent = '불러오는 중…'; }
-    if (!IS_GAS && !navigator.onLine) {
-      try {
-        const snap = await idbGet('snapshot');
-        if (snap && snap.items && snap.items.length) {
-          items = snap.items; logs = snap.logs || [];
-          setSyncLabel(snap.savedAt);
-          renderAll();
-        } else {
-          $('#count').textContent = '';
-          toast('인터넷 연결 후 한 번 접속해 주세요 (저장된 데이터 없음)', true);
-        }
-      } catch (e) { toast('불러오기 실패: ' + e.message, true); }
-      busy = false; return;
-    }
+  let loadAgain = false;
+  // 저장해 둔 이 사이트의 마지막 재고를 보여 줌 (오프라인). 알림은 끊긴 뒤 한 번만
+  async function loadSnapshot(errMsg) {
     try {
-      const d = await api('items'); items = d.items || []; logs = d.logs || [];
-      try { await idbSet('snapshot', { items, logs, savedAt: new Date().toISOString() }); } catch (_) {}
-      setSyncLabel();
-      renderAll();
-    } catch (e) {
+      const snap = await idbGet(snapKey());
+      if (snap && snap.items && snap.items.length) {
+        items = snap.items; logs = snap.logs || [];
+        setSyncLabel(snap.savedAt);
+        renderAll();
+        if (!offlineNotified) toast('오프라인 모드: 마지막 동기화 ' + fmtSyncTime(snap.savedAt), false, '사용 기록은 저장되고, 연결되면 자동 전송됩니다');
+      } else {
+        $('#count').textContent = '';
+        if (!offlineNotified) toast('저장된 재고가 없습니다. 인터넷 연결 후 한 번 열어 주세요.', true, errMsg);
+      }
+    } catch (e) { if (!offlineNotified) toast('불러오기 실패: ' + e.message, true); }
+    offlineNotified = true;
+  }
+  async function load() {
+    if (busy) { loadAgain = true; return; } busy = true;
+    if (!items.length && tab === 'stock') { $('#list').innerHTML = SKEL.repeat(6); $('#count').textContent = '불러오는 중…'; }
+    if (!navigator.onLine) await loadSnapshot();
+    else {
       try {
-        const snap = await idbGet('snapshot');
-        if (snap && snap.items && snap.items.length) {
-          items = snap.items; logs = snap.logs || [];
-          setSyncLabel(snap.savedAt);
-          renderAll();
-          toast('오프라인 모드: 마지막 동기화 ' + fmtSyncTime(snap.savedAt));
-        } else { $('#count').textContent = ''; toast('불러오기 실패: ' + e.message, true); }
-      } catch (_) { $('#count').textContent = ''; toast('불러오기 실패: ' + e.message, true); }
+        const d = await api('items');
+        items = await applyPending(d.items || []); logs = d.logs || [];
+        try { await idbSet(snapKey(), { items, logs, savedAt: new Date().toISOString() }); } catch (_) {}
+        offlineNotified = false;
+        setSyncLabel();
+        renderAll();
+      } catch (e) { await loadSnapshot(e.message); }
     }
     busy = false;
+    if (loadAgain) { loadAgain = false; load(); }
   }
   function renderAll() {
     $('#locList').innerHTML = locations().map(l => `<option value="${esc(l.loc)}">`).join('');
@@ -1579,8 +1593,9 @@
       const r = await api('update', { user, rid, change: -used, note, type: '사용' });
       const it = items.find(i => i.rid === r.rid); if (it) it.qty = r.qty;
       delete deltas[rid]; openId = null; if (histRid === rid) closeHist(); render();
-      toast(`저장됨: ${r.code} ${used}개 사용, 남은 수량 ${r.qty}개`);
-      load();
+      if (r.queued) toast(`오프라인 저장: ${r.code} ${used}개 사용, 남은 수량 ${r.qty}개`, false, '인터넷이 연결되면 자동으로 전송됩니다');
+      else toast(`저장됨: ${r.code} ${used}개 사용, 남은 수량 ${r.qty}개`);
+      if (!r.queued) load();
     } catch (e) {
       toast(e.message, true);
       btns.forEach(b => { b.disabled = false; b.textContent = '사용 기록 저장'; });
@@ -1603,7 +1618,7 @@
   $('#mvCancel').addEventListener('click', closeMove);
   $('#moveModal').addEventListener('click', e => { if (e.target.id === 'moveModal') closeMove(); });
   $('#mvSave').addEventListener('click', async () => {
-    if (!IS_GAS && !navigator.onLine) { $('#mvErr').textContent = '오프라인에서는 이동할 수 없습니다. 온라인에서 시도하세요.'; return; }
+    if (!navigator.onLine) { $('#mvErr').textContent = '오프라인에서는 이동할 수 없습니다. 온라인에서 시도하세요.'; return; }
     const it = items.find(i => i.rid === moveRid); if (!it) return;
     const qty = Math.trunc(Number($('#mvQty').value)), to = $('#mvTo').value.trim();
     if (!to) { $('#mvErr').textContent = '옮길 위치를 입력하세요.'; return; }

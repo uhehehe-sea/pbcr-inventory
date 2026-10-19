@@ -1,5 +1,5 @@
 /* PBCR 자재 재고 — 서비스 워커 (화면 오프라인 캐시) */
-const CACHE = 'pbcr-v1';   // ★ 화면 파일 수정 후 배포할 때마다 숫자 올리기
+const CACHE = 'pbcr-v2';   // ★ 화면 파일 수정 후 배포할 때마다 숫자 올리기
 const SHELL = [
   './',
   './index.html',

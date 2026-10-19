@@ -754,6 +754,7 @@
   #pendingBadge { margin: 6px 12px 0; padding: 8px 12px; border-radius: 8px; background: #7a1f1f; color: #ffd9a0; font-size: .85rem; text-align: center; }
   #pendingBadge[hidden] { display: none; }
 </style>
+<style id="i18nCss">.row1{flex-wrap:wrap;row-gap:8px}.row1 .brand{flex:1 1 auto}</style>
 </head>
 <body>
 <header>
@@ -2010,7 +2011,7 @@
     const ctx = c.getContext('2d');
     ctx.font = 'bold 56px sans-serif'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.shadowColor = 'rgba(0,0,0,.65)'; ctx.shadowBlur = 10;
-    ctx.fillText(text, 128, 64);
+    ctx.fillText(window.__T ? window.__T(text) : text, 128, 64);
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
     const s = scale || 1;
     sp.scale.set(0.9 * s, 0.45 * s, 1);
@@ -2196,5 +2197,190 @@
   else applyParams(Object.fromEntries(new URLSearchParams(location.search)));
 
 </script>
+<script>
+/* ===== 한/EN 언어 전환 (PBCR i18n) =====
+   화면 표시 문구만 번역합니다. 시트 데이터(품명·한글명·메모 등)와 서버로 보내는 값은 그대로입니다. */
+(function () {
+  var KEY = 'pbcr_lang';
+  var lang = 'ko';
+  try { lang = localStorage.getItem(KEY) === 'en' ? 'en' : 'ko'; } catch (e) {}
+  window.__LANG = lang;
+
+  var D = {
+    'PBCR 자재 재고':'PBCR Inventory','다크모드 전환':'Toggle dark mode','📦 입고':'📦 Receive','변경':'Change',
+    '코드 뒤 4자리, 이름, 또는 한글 (예: 서스304)':'Last 4 digits, name, or Korean (e.g. 서스304)',
+    '재고':'Stock','기록':'Log','이름을 입력하세요':'Enter your name',
+    '수량을 바꾸면 이 이름으로 기록됩니다. 이 기기에 기억되니 처음 한 번만 입력하면 돼요.':'Every quantity change is logged under this name. It is remembered on this device, so you only enter it once.',
+    '이름':'Name','예: 홍길동':'e.g. John Smith','시작하기':'Start','이름을 입력하세요.':'Please enter your name.',
+    '불러오는 중…':'Loading…','전체 품목':'Total items','최소 수량 미만':'Below minimum','재고 0':'Out of stock','실사 필요':'Count needed',
+    '보기':'View','기본순':'Default','코드별 묶음':'Group by code','보관장소순':'By location','이름순':'By name','항차별':'By shipment',
+    '수량 많은순':'Qty: high → low','수량 적은순':'Qty: low → high',
+    '＋ 새 품목':'＋ New item','갤러리':'Gallery','엑셀 다운로드':'Excel download','새로고침':'Refresh',
+    'Items 시트에 품목을 추가하면 여기에 나타납니다.':'Items added to the Items sheet will appear here.',
+    '조건에 맞는 품목이 없습니다.':'No items match.','항차 미기재':'No shipment no.','미정':'Unassigned','부족':'Low',
+    '이 선반만 보기':'Show this shelf only','이미지':'Image','닫기':'Close','📷 사진':'📷 Photo','길게 눌러 삭제':'Hold to delete',
+    '가져갈 개수를 먼저 정하세요':'Set the quantity first','사용 기록 저장':'Save usage','개':'ea','저장 중…':'Saving…',
+    '사용 개수':'Qty to use','남는 수량':'Remaining','남은 수량':'Remaining','출고사유 (현장, 용도 등)':'Reason (site, purpose, etc.)',
+    '↔ 이동':'↔ Move','✏️ 정보 수정':'✏️ Edit','하나 빼기':'Minus one','하나 더하기':'Plus one','눌러서 직접 입력':'Tap to type',
+    '전량':'All','사용 개수를 입력하세요':'Enter quantity to use','되돌리기':'Undo',
+    '오프라인에서는 사용 기록만 저장할 수 있습니다.':'Offline: only usage records can be saved.',
+    '오프라인에서는 이동할 수 없습니다. 온라인에서 시도하세요.':'Cannot move while offline. Please try online.',
+    '옮길 위치를 입력하세요.':'Enter the destination.','이동 중…':'Moving…','이동':'Move','위치 이동':'Move location',
+    '옮길 수량':'Qty to move','옮길 위치':'Destination','예: 1-2':'e.g. 1-2','예: 1-1':'e.g. 1-1','출고사유 (선택)':'Reason (optional)',
+    '취소':'Cancel','저장':'Save','사용':'Use','입고':'Receive','실사조정':'Count adjust','실사확인':'Count confirm',
+    '정보수정':'Edit','등록':'Register','삭제':'Delete','전체':'All','차이 없음':'No change',
+    '이 수정 되돌리기':'Undo this edit','내 기록 삭제':'Delete my record','아직 기록이 없습니다.':'No records yet.','기록이 없습니다.':'No records.',
+    '이 정보 수정을 되돌릴까요? (수정 전 값으로 돌아갑니다)':'Undo this edit? (Values return to before the edit.)','되돌렸습니다.':'Reverted.',
+    '총 사용':'Total used','기록 건수':'Records','표시할 사진이 없습니다.':'No photos to show.','목록':'List',
+    '품목 정보 수정':'Edit item','새 품목 등록':'New item','SEA-CODE와 규격(이름)을 입력하세요.':'Enter SEA-CODE and spec (name).',
+    '수정되었습니다. (사용 내역에서 되돌릴 수 있어요)':'Updated. (You can undo it from usage history.)','등록되었습니다.':'Registered.',
+    '삭제를 취소했어요':'Delete cancelled','삭제했어요':'Deleted',
+    '이미지 변환 실패':'Image conversion failed','이미지 읽기 실패':'Could not read image','이미지를 열 수 없습니다.':'Cannot open image.',
+    '사진 올리는 중…':'Uploading photo…','사진이 등록되었습니다.':'Photo added.','업로드 실패':'Upload failed',
+    '엑셀 도구를 불러오지 못했습니다. 새로고침 후 다시 누르세요.':'Could not load the Excel tool. Refresh and try again.',
+    '만드는 중…':'Building…','엑셀 파일을 내려받았습니다.':'Excel file downloaded.',
+    '구역 맵':'Zone map','구역 맵 보기':'Open zone map','재고 없음':'Out of stock','정상':'OK',
+    '드래그: 회전 · 스크롤/핀치: 확대 · 칸 클릭: 재고 보기':'Drag: rotate · Scroll/pinch: zoom · Tap shelf: view stock',
+    '3D 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인하세요.':'Could not load the 3D library. Check your connection.',
+    '구역 A':'Zone A','구역 B':'Zone B','온라인':'Online','오프라인':'Offline',
+    '인터넷이 연결되면 자동으로 전송됩니다':'Will be sent automatically when online',
+    '사용 기록은 저장되고, 연결되면 자동 전송됩니다':'Usage records are saved and sent once connected',
+    '저장된 재고가 없습니다. 인터넷 연결 후 한 번 열어 주세요.':'No saved stock. Open once while online.',
+    '사이트가 선택되지 않았습니다.':'No site selected.','품목을 찾을 수 없습니다.':'Item not found.',
+    '인터넷 연결을 확인하세요.':'Check your internet connection.','서버 응답이 없습니다.':'No server response.',
+    '서버 응답이 비어 있습니다.':'Empty server response.','요청 실패':'Request failed','서버 응답을 읽지 못했습니다.':'Could not read server response.',
+    '알림 닫기':'Dismiss','실사 기록 없음':'Never counted','오늘 실사':'Counted today',
+    '정확':'Exact','정확모델':'Exact model','같은 품번의 제품 사진':'Photo of the same part number','유사':'Similar','동일타입 대표':'Same-type sample',
+    '같은 시리즈 대표 사진, 사이즈·재질·옵션은 다를 수 있음':'Sample photo of the same series; size/material/options may differ',
+    '참고':'Reference','일반 대표이미지':'Generic image','표준품의 일반적인 모양, 참고용':'Typical look of the standard part, for reference',
+    '실물':'Actual','실물사진':'Actual photo','창고에서 찍은 실제 사진':'Real photo taken in the warehouse',
+    '인터넷':'Web','인터넷 이미지':'Web image','인터넷에서 찾은 참고용 이미지':'Reference image found online',
+    '규격(이름)*':'Spec (name)*','한글명':'Korean name','현장명 (현장에서 부르는 이름, 검색용)':'Site nickname (for search)',
+    '수량':'Quantity','위치':'Location','발주번호':'PO number','배치':'Batch','Body 재질':'Body material','Diaphragm 재질':'Diaphragm material',
+    '재질/비고':'Material / note','비고':'Note','출고사유':'Reason','메모':'Memo','선반':'Shelf'
+  };
+  var P = [
+    [/^작업자: ([\s\S]*)$/, 'Worker: $1'],
+    [/^품목 (\d+)개 \/ 전체 (\d+)개$/, '$1 of $2 items'],
+    [/^품목 (\d+)개$/, '$1 items'],
+    [/^실사 필요 \((\d+)일\+\)$/, 'Count needed ($1+ days)'],
+    [/^(\d+)일 전 실사$/, 'Counted $1 days ago'],
+    [/^부족 \(최소 (\d+)\)$/, 'Low (min $1)'],
+    [/^같은 코드 (\d+)곳, 합계 (\d+)개$/, 'Same code in $1 spots, total $2'],
+    [/^(\d+)차$/, 'Shipment $1'],
+    [/^품목 (\d+)개, 재고 (-?\d+)개$/, '$1 items, $2 in stock'],
+    [/^([\s\S]*) · (\d+)줄 · 위치 ([\s\S]*)$/, '$1 · $2 rows · Loc $3'],
+    [/^선반 (.+) ✕$/, 'Shelf $1 ✕'],
+    [/^(-?\d+)개$/, '$1 ea'],
+    [/^(-?\d+)개 사용 · 남는 수량 (-?\d+)개$/, 'Using $1 · $2 left'],
+    [/^(\d+)개 사용 기록 저장$/, 'Save usage ($1)'],
+    [/^(\d+)개 사용$/, 'Using $1'],
+    [/^📋 사용 내역 보기$/, '📋 Usage history'],
+    [/^📋 사용 내역 닫기$/, '📋 Close history'],
+    [/^출처: ([\s\S]*)$/, 'Source: $1'],
+    [/^남은 수량 (-?\d+)개([\s\S]*)$/, function (m, a, b) { return 'Remaining ' + a + b.replace(' · 사유: ', ' · Reason: '); }],
+    [/^저장됨: (\S+) (\d+)개 사용, 남은 수량 (-?\d+)개$/, 'Saved: $1 — used $2, $3 left'],
+    [/^오프라인 저장: (\S+) (\d+)개 사용, 남은 수량 (-?\d+)개$/, 'Saved offline: $1 — used $2, $3 left'],
+    [/^(\S+) (\d+)개 → (.+) 이동$/, '$1: moved $2 → $3'],
+    [/^수량은 1 ~ (\d+)개 사이여야 합니다\.$/, 'Quantity must be between 1 and $1.'],
+    [/^재고가 부족합니다\. 현재 (-?\d+)개입니다\.$/, 'Not enough stock. Currently $1.'],
+    [/^선반 (.+) 재고만 보여줍니다\.$/, 'Showing shelf $1 only.'],
+    [/^선반 (.+) 위치가 맵에서 빛나고 있어요\.$/, 'Shelf $1 is highlighted on the map.'],
+    [/^기록을 지우고 수량을 되돌렸어요 \(([+-]?\d+)개, 지금 (-?\d+)개\)$/, 'Record deleted, quantity restored ($1, now $2)'],
+    [/^이 사용 기록\((\d+)개\)을 지울까요\?\n지우면 \d+개가 재고로 다시 돌아갑니다\.$/, 'Delete this usage record ($1)?\n$1 will be returned to stock.'],
+    [/^이 입고 기록\((\d+)개\)을 지울까요\?\n지우면 재고에서 \d+개가 빠집니다\.$/, 'Delete this receipt record ($1)?\n$1 will be removed from stock.'],
+    [/^([\s\S]+) \(([^()]*)\) 품목을 삭제할까요\?[\s\S]*$/, 'Delete item "$1" ($2)?\nFor a few seconds you can cancel with "Undo" in the notification.'],
+    [/^오프라인 기록 (\d+)건 전송됨$/, '$1 offline record(s) sent'],
+    [/^동기화 확인 필요 (\d+)건$/, '$1 sync issue(s) to check'],
+    [/^전송 대기 (\d+)건 — 인터넷 연결 시 자동 전송됩니다$/, '$1 pending — will send when online'],
+    [/^오프라인 모드: 마지막 동기화 ([\s\S]*)$/, 'Offline mode — last sync $1'],
+    [/^불러오기 실패: ([\s\S]*)$/, 'Load failed: $1'],
+    [/^엑셀 만들기 실패: ([\s\S]*)$/, 'Excel export failed: $1'],
+    [/^맵을 그리지 못했습니다: ([\s\S]*)$/, 'Could not draw the map: $1'],
+    [/^([\s\S]+) · 품목 (\d+)개$/, '$1 · $2 items'],
+    [/^재고 (-?\d+)개$/, 'In stock: $1'],
+    [/^랙 (\S+)$/, 'Rack $1'],
+    [/^최소 수량 \(/, function () { return 'Min qty (shows "Low" below this; blank = no alert)'; }],
+    [/^([\s\S]+) 삭제$/, 'Deleted: $1'],
+    [/^, ([\s\S]+)$/, function (m, a) { var t = tr(a); return t === a ? m : ', ' + t; }]
+  ];
+  var F = [
+    [/ · 지금 위치 /g, ' · now at '], [/ · 위치 /g, ' · Loc '],
+    [/실사 기록 없음/g, 'Never counted'], [/오늘 실사/g, 'Counted today'], [/(\d+)일 전 실사/g, 'Counted $1 days ago']
+  ];
+
+  function tr(s) {
+    if (!s || !/[가-힣]/.test(s)) return s;
+    var lead = s.match(/^\s*/)[0], trail = s.match(/\s*$/)[0], core = s.trim(), r;
+    if (Object.prototype.hasOwnProperty.call(D, core)) r = D[core];
+    else {
+      for (var i = 0; i < P.length; i++) {
+        if (P[i][0].test(core)) { r = core.replace(P[i][0], P[i][1]); break; }
+      }
+      if (r === undefined) { var x = core; F.forEach(function (f) { x = x.replace(f[0], f[1]); }); if (x !== core) r = x; }
+    }
+    return r === undefined ? s : lead + r + trail;
+  }
+  window.__T = function (s) { return window.__LANG === 'en' ? tr(String(s)) : s; };
+
+  function addToggle() {
+    var theme = document.getElementById('themeToggle');
+    if (!theme || document.getElementById('langToggle')) return;
+    var b = document.createElement('button');
+    b.id = 'langToggle'; b.type = 'button';
+    b.textContent = lang === 'en' ? '한' : 'EN';
+    b.setAttribute('aria-label', lang === 'en' ? '한국어로 보기' : 'Switch to English');
+    b.style.cssText = 'background:rgba(255,255,255,.18);border:0;color:#fff;border-radius:6px;padding:6px 10px;font-size:.85rem;font-weight:700;cursor:pointer;margin-left:6px;min-width:40px';
+    b.addEventListener('click', function () {
+      try { localStorage.setItem(KEY, lang === 'en' ? 'ko' : 'en'); } catch (e) {}
+      location.reload();
+    });
+    theme.insertAdjacentElement('afterend', b);
+  }
+  addToggle();
+  if (lang !== 'en') return;
+
+  document.documentElement.lang = 'en';
+  document.title = tr(document.title);
+  ['alert', 'confirm', 'prompt'].forEach(function (fn) {
+    var orig = window[fn];
+    window[fn] = function (m) { var a = [].slice.call(arguments); a[0] = tr(String(m == null ? '' : m)); return orig.apply(window, a); };
+  });
+
+  var ATTRS = ['placeholder', 'title', 'aria-label'];
+  function trText(n) {
+    var p = n.parentNode;
+    if (!p || p.nodeName === 'SCRIPT' || p.nodeName === 'STYLE' || p.nodeName === 'TEXTAREA') return;
+    var v = n.nodeValue;
+    if (!/[가-힣]/.test(v)) return;
+    var out;
+    if (p.classList && p.classList.contains('thumb')) out = v.trim() === '사진' ? 'No' : v.trim() === '없음' ? 'photo' : null;
+    if (!out) out = tr(v);
+    if (out && out !== v) n.nodeValue = out;
+  }
+  function trEl(el) {
+    for (var i = 0; i < ATTRS.length; i++) {
+      var a = el.getAttribute && el.getAttribute(ATTRS[i]);
+      if (a && /[가-힣]/.test(a)) { var t = tr(a); if (t !== a) el.setAttribute(ATTRS[i], t); }
+    }
+  }
+  function walk(root) {
+    if (root.nodeType === 3) { trText(root); return; }
+    if (root.nodeType !== 1) return;
+    trEl(root);
+    var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT), n;
+    while ((n = w.nextNode())) { if (n.nodeType === 3) trText(n); else trEl(n); }
+  }
+  walk(document.body);
+  new MutationObserver(function (ms) {
+    ms.forEach(function (m) {
+      if (m.type === 'characterData') trText(m.target);
+      else if (m.type === 'attributes') trEl(m.target);
+      else m.addedNodes.forEach(walk);
+    });
+  }).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ATTRS });
+})();
+</script>
+
 </body>
 </html>

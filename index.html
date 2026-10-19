@@ -824,7 +824,7 @@
     <label>Diaphragm 재질<input id="f_diaphragm" autocomplete="off"></label>
     <label>재질/비고<input id="f_matNote" autocomplete="off"></label>
     <label>비고<input id="f_note" autocomplete="off"></label>
-    <label>메모<input id="f_memo" autocomplete="off"></label>
+    <label>출고사유<input id="f_memo" autocomplete="off"></label>
     <div class="err" id="modalErr"></div>
     <div class="modal-btns"><button id="modalSave">저장</button><button id="modalCancel" class="ghost">취소</button></div>
   </div>
@@ -837,7 +837,7 @@
     <div class="mv-from" id="mvFrom"></div>
     <label>옮길 수량<input id="mvQty" type="number" inputmode="numeric" min="1"></label>
     <label>옮길 위치<input id="mvTo" autocomplete="off" placeholder="예: 1-2" list="locList"></label>
-    <label>메모 (선택)<input id="mvNote" autocomplete="off"></label>
+    <label>출고사유 (선택)<input id="mvNote" autocomplete="off"></label>
     <div class="err" id="mvErr"></div>
     <div class="modal-btns"><button id="mvSave">이동</button><button id="mvCancel" class="ghost">취소</button></div>
   </div>
@@ -1435,7 +1435,7 @@
             </div>
             <div class="u018-sum"><small>남는 수량</small><b class="u018-total">${i.qty - d}개</b></div>
           </div>
-          <input class="note" placeholder="메모 (현장, 용도 등)" data-act="note">
+          <input class="note" placeholder="출고사유 (현장, 용도 등)" data-act="note">
           <div class="actions">
             <button class="histbtn" data-act="hist" aria-pressed="${histRid === i.rid}">📋 사용 내역 ${histRid === i.rid ? '닫기' : '보기'}</button>
             <button data-act="move">↔ 이동</button>

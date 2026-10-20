@@ -1991,27 +1991,42 @@
   });
 
   /* ---------- 구역 맵(3D) ----------
-     카터스빌 자재룸 배치도(손그림) 기준 — ㄱ자 배치:
-       오른쪽 벽: 랙 1(아래, 입구 쪽) → 랙 2(위)
-       위쪽 벽:   랙 3(오른쪽 모서리) → 랙 4(왼쪽)
-       왼쪽:      번호 없는 구역 2곳(ZONES)
-     좌표 단위는 미터(m), 위에서 내려다볼 때 x=오른쪽, z=아래(입구 쪽).
+     PBCR룸 랙 전체 배치도(손그림, 2026-10-20) 기준 — 방 둘레를 랙이 감싸는 배치:
+       위쪽 벽:   랙 7(왼쪽 모서리, 랙 6 옆) · 랙 8 · 랙 9(오른쪽) — 앞면이 아래(방 안쪽)
+                  (5 → 6 → 7 → 8 → 9 순서로 이어짐. 위쪽 벽 길이를 3등분한 추정값)
+       왼쪽 벽:   랙 6(위) · 랙 5(아래)                — 앞면이 오른쪽
+       오른쪽 벽: 랙 4(위) · 랙 3(아래)                — 앞면이 왼쪽
+       아래쪽:    랙 1(왼쪽) · 랙 2(오른쪽)            — 앞면이 위
+       랙 1·2 뒤: 팔레트 2칸(위치값 'Pallet')
+       가운데:    번호 없는 물체 2개(ZONES)
+     좌표 단위는 미터(m), 위에서 내려다볼 때 x=오른쪽, z=아래.
      len(랙 길이)·위치는 손그림 비율로 잡은 값 — 실측 후 숫자만 고치면 됩니다.
-     face: 선반 앞면이 바라보는 방향('left' = 방 안쪽 왼쪽, 'down' = 방 안쪽 아래).
+     face: 선반 앞면이 바라보는 방향('down'·'up'·'left'·'right').
      levels 번호는 위에서부터 1번(예: 1-1), 아래로 갈수록 커집니다(1-2, 1-3 …). */
   const RACK_DEPTH = 0.6;   // 랙 깊이(m)
   const RACKS = [
-    { id: '1', levels: 4, feet: 6, len: 2.4,  x: 1.8,   z: 1.31,  face: 'left' },  // 오른쪽 벽 아래
-    { id: '2', levels: 4, feet: 6, len: 1.95, x: 1.8,   z: -0.86, face: 'left' },  // 오른쪽 벽 위
-    { id: '3', levels: 4, feet: 6, len: 2.4,  x: 0.3,   z: -2.14, face: 'down' },  // 위쪽 벽 오른쪽(모서리)
-    { id: '4', levels: 4, feet: 6, len: 2.0,  x: -1.9,  z: -2.14, face: 'down' }   // 위쪽 벽 왼쪽
+    { id: '1', levels: 4, feet: 6, len: 2.0,  x: -1.02, z: 2.33,  face: 'up' },     // 아래쪽 왼쪽
+    { id: '2', levels: 4, feet: 6, len: 1.6,  x: 0.78,  z: 2.33,  face: 'up' },     // 아래쪽 오른쪽
+    { id: '3', levels: 4, feet: 6, len: 1.6,  x: 2.0,   z: 1.12,  face: 'left' },   // 오른쪽 아래
+    { id: '4', levels: 4, feet: 6, len: 1.13, x: 2.0,   z: -0.26, face: 'left' },   // 오른쪽 위
+    { id: '5', levels: 4, feet: 6, len: 1.78, x: -2.08, z: -0.83, face: 'right' },  // 왼쪽 아래
+    { id: '6', levels: 4, feet: 6, len: 1.49, x: -2.08, z: -2.5,  face: 'right' },  // 왼쪽 위
+    { id: '7', levels: 4, feet: 6, len: 1.19, x: -1.145, z: -3.28, face: 'down' },  // 위쪽 왼쪽 모서리(랙 6 옆)
+    { id: '8', levels: 4, feet: 6, len: 1.19, x: 0.045,  z: -3.28, face: 'down' },  // 위쪽 가운데
+    { id: '9', levels: 4, feet: 6, len: 1.19, x: 1.235,  z: -3.28, face: 'down' }   // 위쪽 오른쪽
   ];
-  // 번호 없는 바닥 구역(팔레트·작업대 등) — 클릭 대상 아님. 용도가 정해지면 name만 바꾸세요.
+  const FACE_ROT = { down: 0, left: -Math.PI / 2, right: Math.PI / 2, up: Math.PI };
+  // 팔레트 자리 — 누르면 위치값 'Pallet' 재고를 보여 줌(맵에서 빛나는 대상)
+  const PALLETS = [
+    { loc: 'Pallet', x: -1.06, z: 3.25, w: 2.0, d: 1.0 },
+    { loc: 'Pallet', x: 0.78,  z: 3.25, w: 1.6, d: 1.0 }
+  ];
+  // 번호 없는 바닥 물체 — 클릭 대상 아님. 용도가 정해지면 name만 바꾸세요.
   const ZONES = [
-    { name: '구역 A', x: -2.84, z: -0.36, w: 1.13, d: 1.05, h: 0.3 },
-    { name: '구역 B', x: -2.66, z: 1.21,  w: 1.33, d: 0.96, h: 0.3 }
+    { name: '구역 A', x: -0.52, z: -0.85, w: 0.8,  d: 0.5, h: 0.4 },
+    { name: '구역 B', x: 0.47,  z: -0.85, w: 0.86, d: 0.5, h: 0.4 }
   ];
-  const ROOM = { x1: -3.5, x2: 2.2, z1: -2.5, z2: 2.7 };   // 방 바닥 윤곽(대략)
+  const ROOM = { x1: -2.6, x2: 2.5, z1: -3.7, z2: 3.9 };   // 방 바닥 윤곽(대략)
   let mapInited = false, mapScene, mapCamera, mapRenderer, mapControls, mapRaycaster, mapShelves = [], mapRafId = 0;
   let mapHighlightLoc = null;
   const locLabel = (rackId, levelIdx) => rackId + '-' + (levelIdx + 1);
@@ -2037,7 +2052,7 @@
     const w = Math.max(1, wrap.clientWidth), h = Math.max(1, wrap.clientHeight);
     mapScene = new THREE.Scene();
     mapCamera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
-    mapCamera.position.set(-3.2, 6.2, 7.2);   // 왼쪽 앞 위에서 내려다봄 → 네 랙 앞면이 모두 보임
+    mapCamera.position.set(0, 10.5, 6.8);   // 아래쪽(팔레트 쪽) 위에서 비스듬히 내려다봄 → 방 전체와 랙 9개가 모두 보임
     mapRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     mapRenderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     mapRenderer.setSize(w, h);
@@ -2069,7 +2084,7 @@
       // 랙 하나를 그룹으로 만들어(앞면 = 로컬 +z) 위치·방향만 돌려 놓음
       const g = new THREE.Group();
       g.position.set(rack.x, 0, rack.z);
-      g.rotation.y = rack.face === 'left' ? -Math.PI / 2 : 0;
+      g.rotation.y = FACE_ROT[rack.face] || 0;
       // 기둥: 양 끝 + 약 1.2m마다 중간 기둥
       const bays = Math.max(1, Math.round(L / 1.2));
       for (let b = 0; b <= bays; b++) {
@@ -2101,8 +2116,27 @@
       }
       // 랙 번호(꼭대기)
       const head = mapLabelSprite('랙 ' + rack.id, 1.3);
-      head.position.set(0, heightM + 0.35, 0);
+      head.position.set(0, heightM + 0.6, 0);
       g.add(head);
+      mapScene.add(g);
+    });
+
+    // 팔레트(클릭 가능 — 위치값 'Pallet')
+    PALLETS.forEach(p => {
+      const g = new THREE.Group();
+      g.position.set(p.x, 0, p.z);
+      const base = new THREE.Mesh(new THREE.BoxGeometry(p.w, 0.12, p.d), frameMat);
+      base.position.y = 0.06; g.add(base);
+      const glassMat = new THREE.MeshPhysicalMaterial({
+        color: mapStatusColor(p.loc), transparent: true, opacity: 0.48, roughness: 0.15, metalness: 0.05, clearcoat: 0.5,
+        emissive: 0xffe066, emissiveIntensity: 0
+      });
+      const box = new THREE.Mesh(new THREE.BoxGeometry(p.w - 0.08, 0.45, p.d - 0.08), glassMat);
+      box.position.y = 0.12 + 0.225;
+      box.userData = { loc: p.loc };
+      g.add(box); mapShelves.push(box);
+      const lb = mapLabelSprite('팔레트', 1.1);
+      lb.position.set(0, 0.95, 0); g.add(lb);
       mapScene.add(g);
     });
 
@@ -2123,9 +2157,9 @@
 
     mapControls = new THREE.OrbitControls(mapCamera, mapRenderer.domElement);
     mapControls.enableDamping = true; mapControls.dampingFactor = 0.08;
-    mapControls.minDistance = 1.5; mapControls.maxDistance = 18;
+    mapControls.minDistance = 1.5; mapControls.maxDistance = 22;
     mapControls.maxPolarAngle = Math.PI / 2 - 0.05;   // 바닥 아래로 돌아가지 않게
-    mapControls.target.set(-0.4, 0.6, 0.1);
+    mapControls.target.set(0, 0.4, 0.1);
     mapControls.update();
 
     mapRaycaster = new THREE.Raycaster();

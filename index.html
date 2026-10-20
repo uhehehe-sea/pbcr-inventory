@@ -819,7 +819,7 @@
     <label>한글명<input id="f_ko" autocomplete="off" placeholder="예: 둥근머리 볼트 M3×10 (PEEK)"></label>
     <label>현장명 (현장에서 부르는 이름, 검색용)<input id="f_alias" autocomplete="off"></label>
     <label>수량<input id="f_qty" type="number" inputmode="numeric" value="0"></label>
-    <label>최소 수량 (이보다 적으면 '부족' 표시, 비우면 알림 없음)<input id="f_min" type="number" inputmode="numeric" min="0"></label>
+    <label>최소 수량 (이보다 적으면 '부족' 표시, 비우면 1로 적용, 0이면 알림 없음)<input id="f_min" type="number" inputmode="numeric" min="0"></label>
     <label>위치<input id="f_location" autocomplete="off" placeholder="예: 1-1" list="locList"></label>
     <label>발주번호<input id="f_order" autocomplete="off"></label>
     <label>배치<input id="f_batch" autocomplete="off"></label>
@@ -1177,7 +1177,8 @@
 
   const today = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
   const daysSince = s => { if (!s) return null; const d = new Date(s + 'T00:00:00'); return Math.max(0, Math.round((today() - d) / 86400000)); };
-  const isLow = i => i.minQty !== null && i.minQty !== undefined && i.qty < i.minQty;
+  const effMin = i => (i.minQty === null || i.minQty === undefined || i.minQty === '') ? 1 : Number(i.minQty);   // 최소수량 미설정 시 기본 1 (0으로 설정하면 알림 끔)
+  const isLow = i => i.qty < effMin(i);
   const isOld = i => { const d = daysSince(i.lastCount); return d === null || d > COUNT_OLD_DAYS; };
   const whenText = d => d === null ? '실사 기록 없음' : d === 0 ? '오늘 실사' : d + '일 전 실사';
 
@@ -1389,8 +1390,8 @@
         const g = byCode[i.code] || [];
         const tot = g.reduce((a, x) => a + x.qty, 0);
         const locs = [...new Set(g.map(x => x.location || '미정'))];
-        const mins = g.map(x => x.minQty).filter(x => x !== null && x !== undefined);
-        const low = mins.length && tot < Math.max(...mins);
+        const mins = g.map(x => effMin(x));
+        const low = tot < Math.max(...mins);
         head = `<div class="groupHead"><span class="g1">${esc(i.ko || i.name)} ${low ? '<span class="bdg low">부족</span>' : ''}</span><span class="gq">${tot}</span>
           <span class="g2">${esc(i.code)} · ${g.length}줄 · 위치 ${esc(locs.join(', '))}</span></div>`;
       }
@@ -1405,7 +1406,7 @@
     const meta = [i.order, i.batch].filter(Boolean).join(', ');
     const ds = daysSince(i.lastCount);
     const badges = [];
-    if (isLow(i)) badges.push(`<span class="bdg low">부족 (최소 ${i.minQty})</span>`);
+    if (isLow(i)) badges.push(`<span class="bdg low">부족 (최소 ${effMin(i)})</span>`);
     badges.push(`<span class="bdg ${isOld(i) ? 'old' : 'ok'}">${whenText(ds)}</span>`);
     return `
       <div class="item ${openId === i.rid ? 'open' : ''}" data-id="${esc(i.rid)}">
@@ -1795,7 +1796,7 @@
     const it = rid ? items.find(i => i.rid === rid) : null;
     FIELDS.forEach(([id, k]) => { $('#' + id).value = it ? (it[k] ?? '') : ''; });
     $('#f_qty').value = it ? it.qty : 0;
-    $('#f_min').value = it && it.minQty !== null && it.minQty !== undefined ? it.minQty : '';
+    $('#f_min').value = it ? effMin(it) : 1;
     $('#itemModal').hidden = false;
     $(rid ? '#f_ko' : '#f_code').focus();
   }
@@ -2403,7 +2404,7 @@
     [/^([\s\S]+) · 품목 (\d+)개$/, '$1 · $2 items'],
     [/^재고 (-?\d+)개$/, 'In stock: $1'],
     [/^랙 (\S+)$/, 'Rack $1'],
-    [/^최소 수량 \(/, function () { return 'Min qty (shows "Low" below this; blank = no alert)'; }],
+    [/^최소 수량 \(/, function () { return 'Min qty (shows "Low" below this; blank = 1, 0 = no alert)'; }],
     [/^([\s\S]+) 삭제$/, function (m, a) { return 'Deleted: ' + frag(a); }]
   ];
   var F = [

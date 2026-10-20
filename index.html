@@ -801,7 +801,9 @@
 
   <!-- 기록 -->
   <div class="view" id="v-log" hidden>
+    <input id="logSearch" type="search" placeholder="기록 검색: 코드, 품명, 작업자, 메모" autocomplete="off" enterkeyhint="search" style="width:100%;box-sizing:border-box;margin:0 0 10px;padding:12px 14px;border-radius:12px;border:1px solid var(--line,#ddd);background:var(--field,#fff);color:inherit;font:inherit">
     <div class="chips" id="logChips"></div>
+    <div id="logCount" style="font-size:.85rem;opacity:.7;margin:4px 2px 8px"></div>
     <div id="logList"></div>
   </div>
 </main>
@@ -1329,8 +1331,8 @@
     return m ? `${esc(m[1])}<b>${esc(m[2])}</b>` : `<b>${esc(code)}</b>`;
   }
 
-  const imgUrl = (id, w) => 'https:' + '//drive.google.com/thumbnail?id=' + encodeURIComponent(id) + '&sz=w' + w;
-  const imgAlt = (id, w) => 'https:' + '//lh3.googleusercontent.com/d/' + encodeURIComponent(id) + '=w' + w;
+  const imgUrl = (id, w) => 'https:' + '//lh3.googleusercontent.com/d/' + encodeURIComponent(id) + '=w' + w;   // 리다이렉트 없이 바로 받음
+  const imgAlt = (id, w) => 'https:' + '//drive.google.com/thumbnail?id=' + encodeURIComponent(id) + '&sz=w' + w;   // 실패 시 예비 경로
   const CONF = {
     '정확모델': ['정확', '같은 품번의 제품 사진'],
     '동일타입 대표': ['유사', '같은 시리즈 대표 사진, 사이즈·재질·옵션은 다를 수 있음'],
@@ -1407,9 +1409,9 @@
     badges.push(`<span class="bdg ${isOld(i) ? 'old' : 'ok'}">${whenText(ds)}</span>`);
     return `
       <div class="item ${openId === i.rid ? 'open' : ''}" data-id="${esc(i.rid)}">
-        <div class="loc ${i.location ? '' : 'none'}" data-act="filterloc" title="이 선반만 보기">${esc(i.location || '미정')}</div>
+        <div class="loc ${i.location ? '' : 'none'}" data-act="filterloc" title="맵에서 위치 보기">${esc(i.location || '미정')}</div>
         ${i.img
-          ? `<div class="thumb" data-act="open"><img loading="lazy" alt="" data-id="${esc(i.img)}" data-w="120" src="${imgUrl(i.img, 120)}" onerror="imgFallback(this)">${confOf(i.conf)[0] ? `<span class="tag">${esc(confOf(i.conf)[0])}</span>` : ''}</div>`
+          ? `<div class="thumb" data-act="open"><img loading="lazy" decoding="async" alt="" data-id="${esc(i.img)}" data-w="120" src="${imgUrl(i.img, 120)}" onerror="imgFallback(this)">${confOf(i.conf)[0] ? `<span class="tag">${esc(confOf(i.conf)[0])}</span>` : ''}</div>`
           : `<div class="thumb none" data-act="open">사진<br>없음</div>`}
         <div class="info" role="button" tabindex="0" data-act="open" aria-expanded="${openId === i.rid}">
           <div class="code">${codeHtml(i.code)}</div>
@@ -1419,7 +1421,7 @@
         </div>
         <div class="qty ${i.qty === 0 ? 'zero' : ''}" data-act="open">${i.qty}<small>개</small></div>
         <div class="edit">
-          ${i.img ? `<div class="photo"><img loading="lazy" alt="${esc(i.name)}" data-id="${esc(i.img)}" data-w="800" src="${imgUrl(i.img, 800)}" onerror="imgFallback(this)">
+          ${i.img ? `<div class="photo"><img loading="lazy" decoding="async" alt="${esc(i.name)}" data-id="${esc(i.img)}" data-w="600" src="${imgUrl(i.img, 600)}" onerror="imgFallback(this)">
             <div class="cap"><b>${esc(i.conf || '이미지')}</b>${confOf(i.conf)[1] ? ', ' + esc(confOf(i.conf)[1]) : ''}${i.src ? `<br>출처: ${esc(i.src)}` : ''}</div></div>` : ''}
           <div class="uselabel">사용 개수</div>
           <div class="quickbtns">
@@ -1552,7 +1554,7 @@
     const el = e.target.closest('[data-act]'); if (!el) return;
     const id = el.closest('.item').dataset.id, act = el.dataset.act;
     if (act === 'open') { openId = openId === id ? null : id; render(); }
-    if (act === 'filterloc') { const it = items.find(x => x.rid === id); filter.loc = it && it.location ? it.location : ''; openId = null; renderChips(); render(); window.scrollTo(0, 0); }
+    if (act === 'filterloc') { const it = items.find(x => x.rid === id); if (it && it.location && !$('#mapBtn').hidden && openMap(it.location)) return; filter.loc = it && it.location ? it.location : ''; openId = null; renderChips(); render(); window.scrollTo(0, 0); }
     if (act === 'useType') { const n = prompt('사용 개수를 입력하세요', deltas[id] || 0); if (n !== null && n.trim() !== '') setDelta(id, Number(n)); }
     if (act === 'useUp') setDelta(id, (deltas[id] || 0) + 1);
     if (act === 'useDown') setDelta(id, (deltas[id] || 0) - 1);
@@ -1732,9 +1734,21 @@
   }
   function renderLogs() {
     renderLogChips();
-    const list = logs.filter(r => !logType || r.type === logType || (logType === '이동' && /^이동/.test(r.type)));
-    $('#logList').innerHTML = list.length ? list.map(r => logLine(r, true)).join('') : '<div class="empty">기록이 없습니다.</div>';
+    const typed = logs.filter(r => !logType || r.type === logType || (logType === '이동' && /^이동/.test(r.type)));
+    const words = ($('#logSearch').value || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const T = window.__T || (s => s);
+    const list = !words.length ? typed : typed.filter(r => {
+      const it = items.find(i => i.code === r.code) || {};
+      const hay = [r.code, r.name, it.ko, it.alias, it.location, r.user, r.note, r.type, r.time, r.reason]
+        .filter(Boolean).map(String);
+      const all = hay.concat(hay.map(s => T(s))).join(' ').toLowerCase();
+      return words.every(w => all.includes(w));
+    });
+    $('#logCount').textContent = words.length ? `${list.length}건 / 전체 ${typed.length}건` : '';
+    $('#logList').innerHTML = list.length ? list.map(r => logLine(r, true)).join('')
+      : `<div class="empty">${words.length ? '검색 결과가 없습니다.' : '기록이 없습니다.'}</div>`;
   }
+  $('#logSearch').addEventListener('input', () => renderLogs());
   $('#logChips').addEventListener('click', e => { const b = e.target.closest('[data-lt]'); if (!b) return; logType = b.dataset.lt; renderLogs(); });
 
   /* ---------- 갤러리 ---------- */
@@ -1744,7 +1758,7 @@
     const list = searched().list.filter(i => i.img);
     $('#gallery').innerHTML = list.length ? list.map(i => `
       <div class="gcell" data-rid="${esc(i.rid)}">
-        <img loading="lazy" alt="${esc(i.name)}" src="${imgUrl(i.img, 200)}" onerror="imgFallback(this)">
+        <img loading="lazy" decoding="async" alt="${esc(i.name)}" src="${imgUrl(i.img, 160)}" onerror="imgFallback(this)">
         <div class="gcode">${esc(i.code)}</div>
       </div>`).join('')
       : '<div class="empty">표시할 사진이 없습니다.</div>';
@@ -1758,7 +1772,7 @@
   $('#gallery').addEventListener('click', e => {
     const cell = e.target.closest('.gcell'); if (!cell) return;
     const it = items.find(i => i.rid === cell.dataset.rid); if (!it) return;
-    $('#galImg').src = imgUrl(it.img, 800);
+    $('#galImg').src = imgUrl(it.img, 600);
     $('#galImg').onerror = function() { imgFallback(this); };
     $('#galCode').textContent = it.code;
     $('#galName').textContent = it.ko ? `${it.ko} / ${it.name}` : it.name;
@@ -2143,14 +2157,7 @@
     (function animate() {
       mapRafId = requestAnimationFrame(animate);
       if ($('#mapModal').hidden) return;   // 닫혀 있을 때는 그리지 않음(배터리 절약)
-      if (mapHighlightLoc) {
-        const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 220);
-        mapShelves.forEach(box => {
-          box.material.emissiveIntensity = box.userData.loc === mapHighlightLoc ? pulse : 0;
-        });
-      } else {
-        mapShelves.forEach(box => { if (box.material.emissiveIntensity) box.material.emissiveIntensity = 0; });
-      }
+      animateMapHL();
       mapControls.update();
       mapRenderer.render(mapScene, mapCamera);
     })();
@@ -2169,22 +2176,91 @@
     mapRenderer.setSize(w, h);
   }
   window.addEventListener('resize', onMapResize);
-  function openMap() {
-    if (typeof THREE === 'undefined' || !THREE.OrbitControls) { toast('3D 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인하세요.', true); return; }
+
+  /* ---------- 선반 하이라이트 (강하게 빛남: 외곽선·발광 셸·빛기둥·화살표·파동 링·조명) ---------- */
+  let mapHL = null;
+  function clearMapHL() {
+    if (!mapHL) return;
+    mapHL.objs.forEach(o => { if (o.parent) o.parent.remove(o); if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    mapHL = null;
+  }
+  function makeMapHL(box) {
+    clearMapHL();
+    const p = box.geometry.parameters, objs = [];
+    const add = (o, parent) => { (parent || mapScene).add(o); objs.push(o); return o; };
+    const edges = add(new THREE.LineSegments(new THREE.EdgesGeometry(box.geometry),
+      new THREE.LineBasicMaterial({ color: 0xfff27a, transparent: true, opacity: 1, depthTest: false })), box);
+    edges.renderOrder = 999; edges.scale.setScalar(1.04);
+    const shell = add(new THREE.Mesh(new THREE.BoxGeometry(p.width, p.height, p.depth),
+      new THREE.MeshBasicMaterial({ color: 0xffc400, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false })), box);
+    shell.renderOrder = 998;
+    const wp = new THREE.Vector3(); box.getWorldPosition(wp);
+    const top = new THREE.Box3().setFromObject(box.parent || box).max.y;
+    const beamTop = top + 1.6, beamH = Math.max(0.5, beamTop - wp.y);
+    const beam = add(new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.16, beamH, 24, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0xffe14d, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })));
+    beam.position.set(wp.x, wp.y + beamH / 2, wp.z);
+    const cone = add(new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.42, 24), new THREE.MeshBasicMaterial({ color: 0xff2d2d })));
+    cone.rotation.x = Math.PI;
+    const r = Math.max(p.width, p.depth) * 0.55;
+    const ring = add(new THREE.Mesh(new THREE.RingGeometry(r * 0.9, r, 64),
+      new THREE.MeshBasicMaterial({ color: 0xffe14d, transparent: true, opacity: 0.9, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false })));
+    ring.rotation.x = -Math.PI / 2; ring.position.set(wp.x, wp.y - p.height / 2 + 0.02, wp.z); ring.renderOrder = 997;
+    const light = add(new THREE.PointLight(0xffd84d, 3, 3.5)); light.position.copy(wp);
+    mapHL = { box, edges, shell, beam, cone, ring, light, coneY: top + 0.55, x: wp.x, z: wp.z, objs, t0: performance.now() };
+    cone.position.set(wp.x, mapHL.coneY, wp.z);
+  }
+  function animateMapHL() {
+    const t = performance.now();
+    if (!mapHighlightLoc) {
+      mapShelves.forEach(box => {
+        if (box.material.emissiveIntensity) box.material.emissiveIntensity = 0;
+        if (box.userData.baseOpacity != null) box.material.opacity = box.userData.baseOpacity;
+      });
+      return;
+    }
+    const s = 0.5 + 0.5 * Math.sin(t / 150);             // 빠른 맥동
+    mapShelves.forEach(box => {
+      if (box.userData.baseOpacity == null) box.userData.baseOpacity = box.material.opacity;
+      const on = box.userData.loc === mapHighlightLoc;
+      box.material.emissiveIntensity = on ? 1 + 2.5 * s : 0;
+      box.material.opacity = on ? 0.95 : 0.2;               // 다른 선반은 흐리게 → 대상이 더 도드라짐
+    });
+    if (!mapHL) return;
+    const k = ((t - mapHL.t0) % 1100) / 1100;              // 바닥 파동 링
+    mapHL.edges.material.opacity = 0.55 + 0.45 * s;
+    mapHL.shell.material.opacity = 0.25 + 0.5 * s;
+    mapHL.shell.scale.setScalar(1.06 + 0.1 * s);
+    mapHL.beam.material.opacity = 0.18 + 0.4 * s;
+    mapHL.cone.position.y = mapHL.coneY + 0.18 * Math.abs(Math.sin(t / 260));
+    mapHL.cone.rotation.y = t / 500;
+    mapHL.ring.scale.setScalar(1 + 2.2 * k);
+    mapHL.ring.material.opacity = 0.95 * (1 - k);
+    mapHL.light.intensity = 1.5 + 4 * s;
+  }
+  function openMap(locArg) {
+    if (typeof THREE === 'undefined' || !THREE.OrbitControls) { toast('3D 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인하세요.', true); return false; }
     // 아이템을 클릭해 열어 둔 상태에서 맵을 열면, 그 아이템이 있는 선반이 빛남
     const openedItem = openId ? items.find(i => i.rid === openId) : null;
-    mapHighlightLoc = (openedItem && openedItem.location) || null;
+    mapHighlightLoc = (typeof locArg === 'string' && locArg) || (openedItem && openedItem.location) || null;
     $('#mapModal').hidden = false;
     if (!mapInited) { mapInited = true; try { buildMapScene(); } catch (e) { toast('맵을 그리지 못했습니다: ' + e.message, true); } }
     else mapShelves.forEach(box => box.material.color.setHex(mapStatusColor(box.userData.loc)));
+    clearMapHL();
+    let found = false;
     if (mapHighlightLoc) {
       const target = mapShelves.find(b => b.userData.loc === mapHighlightLoc);
       if (target) {
+        found = true;
         if (mapControls) target.getWorldPosition(mapControls.target);
+        makeMapHL(target);
         toast('선반 ' + mapHighlightLoc + ' 위치가 맵에서 빛나고 있어요.');
       }
     }
+    // 위치 칸을 눌렀는데 맵에 없는 위치(예: OPL렉)면 맵을 닫고 기존처럼 그 위치 목록을 보여 줌
+    if (typeof locArg === 'string' && !found) { mapHighlightLoc = null; $('#mapModal').hidden = true; return false; }
     setTimeout(onMapResize, 0);
+    return true;
   }
   function closeMap() { $('#mapModal').hidden = true; }
   $('#mapBtn').addEventListener('click', openMap);
@@ -2257,9 +2333,36 @@
     '인터넷':'Web','인터넷 이미지':'Web image','인터넷에서 찾은 참고용 이미지':'Reference image found online',
     '규격(이름)*':'Spec (name)*','한글명':'Korean name','현장명 (현장에서 부르는 이름, 검색용)':'Site nickname (for search)',
     '수량':'Quantity','위치':'Location','발주번호':'PO number','배치':'Batch','Body 재질':'Body material','Diaphragm 재질':'Diaphragm material',
+
+    '← 사이트 선택':'← Choose site','결과가 많아 150종까지만 보여 줍니다. 검색어를 더 좁혀 주세요.':'Too many results — showing the first 150 codes. Please narrow your search.',
+    '고른 사이트에 맞는 품목이 없습니다.':'No matching items in the selected sites.',
+    '등록된 사이트가 없습니다. 마스터 시트 Sites 탭을 확인하세요.':'No sites registered. Check the Sites tab of the master sheet.',
+    '메모 (선택)':'Memo (optional)','불러오기 실패':'Load failed','사이트':'Site','사이트 목록 불러오는 중…':'Loading sites…',
+    '사이트를 선택하세요':'Choose a site','사이트를 하나 이상 고르세요.':'Select at least one site.','선택한 사이트에서 찾기':'Search selected sites',
+    '여러 사이트에서 한꺼번에 찾기':'Search across multiple sites','열기 ›':'Open ›',
+    '위치마다 재고 시트가 다릅니다. 고른 사이트의 재고만 보이고 기록됩니다.':'Each location has its own stock sheet. Only the chosen site’s stock is shown and recorded.',
+    '찾을 코드나 이름을 입력하세요. 고른 사이트 전체에서 찾습니다.':'Enter a code or name to search all selected sites.',
+    '출고사유 (예: 현장, 용도)':'Reason (e.g. site, purpose)',
+    '알 수 없는 요청입니다.':'Unknown request (not supported by the server yet).','사이트를 선택하세요.':'Please choose a site.',
+    '이름을 먼저 입력하세요.':'Please enter your name first.','해당 품목을 찾을 수 없습니다.':'Item not found.',
+    '해당 품목을 찾을 수 없습니다. 새로고침 후 다시 시도하세요.':'Item not found. Refresh and try again.',
+    '본인이 남긴 기록만 삭제할 수 있습니다.':'You can only delete your own records.','이미 삭제된 기록입니다.':'This record was already deleted.',
+    '삭제할 기록을 찾을 수 없습니다.':'Record to delete not found.','목록이 오래되었습니다. 새로고침 후 다시 시도하세요.':'The list is out of date. Refresh and try again.',
+    '변동 수량은 0이 아닌 정수여야 합니다.':'Change must be a non-zero whole number.','사진 정보가 없습니다.':'No photo data.',
+    '사이트가 선택되지 않았습니다. 새로고침 후 사이트를 다시 고르세요.':'No site selected. Refresh and choose a site again.',
+    '수정할 내용이 없습니다.':'Nothing to update.',
+    '맵에서 위치 보기':'Show on map','기록 검색: 코드, 품명, 작업자, 메모':'Search log: code, name, worker, memo','검색 결과가 없습니다.':'No matching records.',
     '재질/비고':'Material / note','비고':'Note','출고사유':'Reason','메모':'Memo','선반':'Shelf'
   };
   var P = [
+    [/^(\d+)건 \/ 전체 (\d+)건$/, '$1 of $2 records'],
+    [/^(\d+)개 사이트 재고 불러오는 중…$/, 'Loading stock from $1 sites…'],
+    [/^(\d+)개 사이트에서 (\d+)종 · (\d+)줄 찾음$/, 'Found $3 rows ($2 codes) in $1 sites'],
+    [/^통합 검색 · ([\s\S]*)$/, 'Multi-site search · $1'],
+    [/^(.+) 저장본\((.*)\)$/, '$1 cached ($2)'],
+    [/^(.+) 불러오기 실패$/, '$1 load failed'],
+    [/^위치 ([\s\S]*)$/, 'Loc $1'],
+    [/^사이트를 찾을 수 없습니다: ([\s\S]*)$/, 'Site not found: $1'],
     [/^작업자: ([\s\S]*)$/, 'Worker: $1'],
     [/^품목 (\d+)개 \/ 전체 (\d+)개$/, '$1 of $2 items'],
     [/^품목 (\d+)개$/, '$1 items'],
@@ -2277,8 +2380,8 @@
     [/^(\d+)개 사용$/, 'Using $1'],
     [/^📋 사용 내역 보기$/, '📋 Usage history'],
     [/^📋 사용 내역 닫기$/, '📋 Close history'],
-    [/^출처: ([\s\S]*)$/, 'Source: $1'],
-    [/^남은 수량 (-?\d+)개([\s\S]*)$/, function (m, a, b) { return 'Remaining ' + a + b.replace(' · 사유: ', ' · Reason: '); }],
+    [/^출처: ([\s\S]*)$/, function (m, a) { return 'Source: ' + tr(a); }],
+    [/^남은 수량 (-?\d+)개([\s\S]*)$/, function (m, a, b) { return 'Remaining ' + a + b.replace(' · 사유: ', ' · Reason: ').split(' · ').map(function (s) { var k = s.trim(); return Object.prototype.hasOwnProperty.call(NAMES, k) ? NAMES[k] : frag(s); }).join(' · '); }],
     [/^저장됨: (\S+) (\d+)개 사용, 남은 수량 (-?\d+)개$/, 'Saved: $1 — used $2, $3 left'],
     [/^오프라인 저장: (\S+) (\d+)개 사용, 남은 수량 (-?\d+)개$/, 'Saved offline: $1 — used $2, $3 left'],
     [/^(\S+) (\d+)개 → (.+) 이동$/, '$1: moved $2 → $3'],
@@ -2289,7 +2392,7 @@
     [/^기록을 지우고 수량을 되돌렸어요 \(([+-]?\d+)개, 지금 (-?\d+)개\)$/, 'Record deleted, quantity restored ($1, now $2)'],
     [/^이 사용 기록\((\d+)개\)을 지울까요\?\n지우면 \d+개가 재고로 다시 돌아갑니다\.$/, 'Delete this usage record ($1)?\n$1 will be returned to stock.'],
     [/^이 입고 기록\((\d+)개\)을 지울까요\?\n지우면 재고에서 \d+개가 빠집니다\.$/, 'Delete this receipt record ($1)?\n$1 will be removed from stock.'],
-    [/^([\s\S]+) \(([^()]*)\) 품목을 삭제할까요\?[\s\S]*$/, 'Delete item "$1" ($2)?\nFor a few seconds you can cancel with "Undo" in the notification.'],
+    [/^([\s\S]+) \(([^()]*)\) 품목을 삭제할까요\?[\s\S]*$/, function (m, a, b) { return 'Delete item "' + frag(a) + '" (' + b + ')?\nFor a few seconds you can cancel with "Undo" in the notification.'; }],
     [/^오프라인 기록 (\d+)건 전송됨$/, '$1 offline record(s) sent'],
     [/^동기화 확인 필요 (\d+)건$/, '$1 sync issue(s) to check'],
     [/^전송 대기 (\d+)건 — 인터넷 연결 시 자동 전송됩니다$/, '$1 pending — will send when online'],
@@ -2301,82 +2404,160 @@
     [/^재고 (-?\d+)개$/, 'In stock: $1'],
     [/^랙 (\S+)$/, 'Rack $1'],
     [/^최소 수량 \(/, function () { return 'Min qty (shows "Low" below this; blank = no alert)'; }],
-    [/^([\s\S]+) 삭제$/, 'Deleted: $1'],
-    [/^, ([\s\S]+)$/, function (m, a) { var t = tr(a); return t === a ? m : ', ' + t; }]
+    [/^([\s\S]+) 삭제$/, function (m, a) { return 'Deleted: ' + frag(a); }]
   ];
   var F = [
     [/ · 지금 위치 /g, ' · now at '], [/ · 위치 /g, ' · Loc '],
-    [/실사 기록 없음/g, 'Never counted'], [/오늘 실사/g, 'Counted today'], [/(\d+)일 전 실사/g, 'Counted $1 days ago']
+    [/실사 기록 없음/g, 'Never counted'], [/오늘 실사/g, 'Counted today'], [/(\d+)일 전 실사/g, 'Counted $1 days ago'], [/ · (\d+)개$/, ' · $1 ea']
   ];
 
+
+  /* 품목명(한글명·규격) 영문 사전 — 2026-10-19 시트 기준. 새 품목은 아래 GLOSS 용어 치환으로 대체 */
+  var NAMES = {"레벨 트랜스미터 150mm": "Level transmitter 150mm", "DM15/55 부품 (NPT 나사)": "DM15/55 part (NPT thread)", "품명 미기재 (PEEK)": "Unnamed part (PEEK)", "품명 미기재 (PVDF)": "Unnamed part (PVDF)", "드라이브 샤프트 홀더 C (PEEK)": "Drive shaft holder C (PEEK)", "품명 미기재 (PP-W)": "Unnamed part (PP-W)", "품명 미기재 (PP)": "Unnamed part (PP)", "품명 미기재 (PP-N)": "Unnamed part (PP-N)", "품명 미기재 (백색 PVC)": "Unnamed part (white PVC)", "GEMU 다이어프램 (코드54)": "GEMU diaphragm (code 54)", "A677 배스 내부 커버 A (PP-W)": "A677 bath inner cover A (PP-W)", "A677 배스 내부 커버 B (PP-W)": "A677 bath inner cover B (PP-W)", "둥근머리 볼트 M3×10 (PEEK)": "Round-head bolt M3×10 (PEEK)", "접시머리 볼트 M6×20 (PEEK)": "Flat-head bolt M6×20 (PEEK)", "접시머리 볼트 M4×12 (PEEK)": "Flat-head bolt M4×12 (PEEK)", "접시머리 볼트 M4×16 (PEEK)": "Flat-head bolt M4×16 (PEEK)", "그리퍼 핀 가이드 (PEEK)": "Gripper pin guide (PEEK)", "M12 그리퍼 중간 서포트 (PP-W)": "M12 gripper middle support (PP-W)", "M12 중앙 그리퍼 핀 A (PVDF)": "M12 center gripper pin A (PVDF)", "M12 중앙 그리퍼 핀 B (PVDF)": "M12 center gripper pin B (PVDF)", "M12 측면 그리퍼 핀 (PVDF)": "M12 side gripper pin (PVDF)", "M12 앞쪽 그리퍼 (PP-N)": "M12 front gripper (PP-N)", "M12 뒤쪽 그리퍼 (PP-N)": "M12 rear gripper (PP-N)", "M12 중앙 그리퍼 (PP-N)": "M12 center gripper (PP-N)", "센서 케이블 홀더 드레인-1 (PP-N)": "Sensor cable holder drain-1 (PP-N)", "센서 케이블 홀더 드레인-3 (PP-N)": "Sensor cable holder drain-3 (PP-N)", "센서 케이블 홀더 B": "Sensor cable holder B", "센서 케이블 홀더 드레인 탭-2 (신형)": "Sensor cable holder drain tap-2 (new type)", "센서 케이블 홀더 드레인-3 (신형)": "Sensor cable holder drain-3 (new type)", "센서 케이블 홀더 New-2": "Sensor cable holder New-2", "용접기 히터": "Welder heater", "D20 배관 서포트 (PP-W)": "D20 pipe support (PP-W)", "D32 배관 서포트 (PP-W)": "D32 pipe support (PP-W)", "D40 배관 서포트 (PP-W)": "D40 pipe support (PP-W)", "D40 배관 서포트 (백색 PVC)": "D40 pipe support (white PVC)", "D50 배관 서포트 (PP-W)": "D50 pipe support (PP-W)", "노즐 서포트 B (SUS316)": "Nozzle support B (SUS316)", "레일 블록 서포트 A (SUS316)": "Rail block support A (SUS316)", "하부 락 (PTFE)": "Lower lock (PTFE)", "이너 링 (PTFE)": "Inner ring (PTFE)", "락 커넥트 (PTFE)": "Lock connector (PTFE)", "락 핸들 (SUS316)": "Lock handle (SUS316)", "락 샤프트 (SUS316)": "Lock shaft (SUS316)", "오링 AN018 (EPDM)": "O-ring AN018 (EPDM)", "상부 락 (PTFE)": "Upper lock (PTFE)", "PCW 압력 센서": "PCW pressure sensor", "DIN 레일 엔드 스토퍼 35mm": "DIN rail end stopper 35mm", "정량 펌프 Prominent (PPE)": "Metering pump Prominent (PPE)", "정량 펌프 Prominent (PVT)": "Metering pump Prominent (PVT)", "오링 P-6 (바이톤)": "O-ring P-6 (Viton)", "아이들 롤러 세트": "Idle roller set", "아이들 롤러 세트 2": "Idle roller set 2", "B600 M12 힌지 핀 (PEEK)": "B600 M12 hinge pin (PEEK)", "B600 M12 힌지 부싱 (PEEK)": "B600 M12 hinge bushing (PEEK)", "D63 엔드캡 (1/4 탭)": "D63 end cap (1/4 tap)", "50A-D40 소켓 티": "50A-D40 socket tee", "50A-D40 레듀서": "50A-D40 reducer", "감압 밸브 D25 (PP-H)": "Pressure-reducing valve D25 (PP-H)", "단자대 엔드 플레이트": "Terminal block end plate", "단자대 2선 단로형": "Terminal block, 2-wire disconnect type", "솔레노이드 밸브 YS20": "Solenoid valve YS20", "너트 M10 (PVDF)": "Nut M10 (PVDF)", "육각 볼트 M10×45 (PVDF)": "Hex bolt M10×45 (PVDF)", "전도도 조인트 배관": "Conductivity joint pipe", "체인 커버 중간 베이스 (투명 PVC)": "Chain cover middle base (clear PVC)", "레벨 센서 블록1 (PP)": "Level sensor block 1 (PP)", "레벨 센서 너트1 (PP)": "Level sensor nut 1 (PP)", "오링 G55 (아플라스)": "O-ring G55 (Aflas)", "육각 볼트 M8×40 (SUS316)": "Hex bolt M8×40 (SUS316)", "둥근머리 볼트 M5×20 (SUS304)": "Round-head bolt M5×20 (SUS304)", "린스1 벽판 (PP-N)": "Rinse 1 wall panel (PP-N)", "1번 샤워 커버 2": "No. 1 shower cover 2", "A861-DT ALR 바디 용접품": "A861-DT ALR body weldment", "오존 발생기": "Ozone generator", "히터 9kW 480V (SUS)": "Heater 9kW 480V (SUS)", "GEMU 자동 다이어프램 밸브 610": "GEMU automatic diaphragm valve 610", "유니온 D50 (PP-H)": "Union D50 (PP-H)", "45도 엘보 D50 (PP-H)": "45° elbow D50 (PP-H)", "티 D50 (PP-H)": "Tee D50 (PP-H)", "Z-D50 피팅 (PP-H)": "Z-D50 fitting (PP-H)", "마이크로 필터 MF-050": "Micro filter MF-050", "전도도 플랜지 패킹 (PTFE)": "Conductivity flange packing (PTFE)", "오링 G55 (EPDM)": "O-ring G55 (EPDM)", "공정조 용접 리브-1 (PP-N)": "Process tank weld rib-1 (PP-N)", "공정조 용접 리브-2 (PP-N)": "Process tank weld rib-2 (PP-N)", "수동 밸브 D50 (PP-H)": "Manual valve D50 (PP-H)", "커버 서포트 손잡이": "Cover support handle", "PP 배관 D50 (AGRU)": "PP pipe D50 (AGRU)", "펌프 WPIV-1560 (바이톤)": "Pump WPIV-1560 (Viton)", "펌프 MP420 1.5kW": "Pump MP420 1.5kW", "펌프 Renner RM3": "Pump Renner RM3", "드라이브4 상부 커버1 (투명 PVC)": "Drive 4 upper cover 1 (clear PVC)", "드라이브4 상부 커버2 조립품 (투명 PVC)": "Drive 4 upper cover 2 assembly (clear PVC)", "드라이브4 상부 커버3 (투명 PVC)": "Drive 4 upper cover 3 (clear PVC)", "전도도 플랜지1": "Conductivity flange 1", "A675 오존조 뚜껑 M12 암 (PP-N)": "A675 ozone tank lid M12 arm (PP-N)", "너트 M5 (SUS304)": "Nut M5 (SUS304)", "자동 밸브 D25 (PVDF)": "Automatic valve D25 (PVDF)", "무두 렌치볼트 M6×5 (SUS316)": "Set screw (headless socket) M6×5 (SUS316)", "광섬유 센서 헤드 (SICK LL3)": "Fiber-optic sensor head (SICK LL3)", "이너 커버 (강화유리)": "Inner cover (tempered glass)", "상부 노즐 고정 브래킷-2 (백색 PVC)": "Upper nozzle mounting bracket-2 (white PVC)", "렌치볼트 M5×15 (SUS316)": "Socket-head bolt M5×15 (SUS316)", "소켓 피팅 (회색 PVC)": "Socket fitting (gray PVC)", "노즐 1/8 VVP (PP)": "Nozzle 1/8 VVP (PP)", "숫나사 엘보 1/4 (INNODIS)": "Male-thread elbow 1/4 (INNODIS)", "베어링 하우징 35T (PP-N)": "Bearing housing 35T (PP-N)", "라인 오링 (더블윙형)": "Line O-ring (double-wing type)", "티": "Tee", "45도 엘보": "45° elbow", "Z-D40 피팅": "Z-D40 fitting", "솔레노이드 유닛 YSV20": "Solenoid unit YSV20", "누액 센서 (야마타케)": "Leak sensor (Yamatake)", "레벨 센서 130mm (테프론)": "Level sensor 130mm (Teflon)", "딥 레벨 센서 57": "Dip level sensor 57", "브레이크 케이블 (미쓰비시, L자형)": "Brake cable (Mitsubishi, L-type)", "미쓰비시, MR-BKS1CBL28M-A1-H L자형": "Mitsubishi, MR-BKS1CBL28M-A1-H L-type", "서보 케이블 (미쓰비시 MR-J3BUS3M)": "Servo cable (Mitsubishi MR-J3BUS3M)", "전도도계 CTI750 (PEEK)": "Conductivity meter CTI750 (PEEK)", "유량계 (GF)": "Flow meter (GF)", "HCl 가스 감지기 (자동 흡입형)": "HCl gas detector (auto-suction type)", "레벨 센서 (SICK CM18)": "Level sensor (SICK CM18)", "레벨 센서 300mm (테프론)": "Level sensor 300mm (Teflon)", "레벨 센서 케이블 (SICK, 엘보형)": "Level sensor cable (SICK, elbow type)", "레벨 트랜스미터 115mm (PP)": "Level transmitter 115mm (PP)", "뚜껑 마그네틱 센서 (OMRON)": "Lid magnetic sensor (OMRON)", "뚜껑 센서 (Pilz)": "Lid sensor (Pilz)", "압력계 센서 (SND)": "Pressure gauge sensor (SND)", "포토 센서 BL13": "Photo sensor BL13", "위치 스위치 Bi2": "Position switch Bi2", "푸시버튼 스위치 (녹색)": "Push-button switch (green)", "KGX-HMD22G, 고급형, 24VDC, Ø22, 2a2b, LED,": "KGX-HMD22G, premium type, 24VDC, Ø22, 2a2b, LED,", "푸시버튼 스위치 (황색)": "Push-button switch (yellow)", "KGX-HMD22Y, 고급형, 24VDC, Ø22, 2a2b, LED,": "KGX-HMD22Y, premium type, 24VDC, Ø22, 2a2b, LED,", "푸시버튼 스위치 (백색)": "Push-button switch (white)", "KGX-HMD22W, 고급형, 24VDC, Ø22, 2a2b, LED,": "KGX-HMD22W, premium type, 24VDC, Ø22, 2a2b, LED,", "안전 모드 스위치": "Safety mode switch", "센서 (Autonics BS5)": "Sensor (Autonics BS5)", "말굽센서 (OMRON EE-SX670P)": "Slot (horseshoe) sensor (OMRON EE-SX670P)", "온도 센서 PT100 200mm": "Temperature sensor PT100 200mm", "온도 센서 PT100 100mm": "Temperature sensor PT100 100mm", "온도 센서 PT100 1300mm": "Temperature sensor PT100 1300mm", "초음파 레벨 센서 (SICK)": "Ultrasonic level sensor (SICK)", "오링 AN344 (아플라스)": "O-ring AN344 (Aflas)", "오링 AN115 (아플라스)": "O-ring AN115 (Aflas)", "오링 P21 외 (아플라스)": "O-ring P21 etc. (Aflas)", "40A 플랜지 가스켓 D110 4t (PTFE)": "40A flange gasket D110 4t (PTFE)", "80A 가스켓 D150 4t (PTFE)": "80A gasket D150 4t (PTFE)", "32A 가스켓 D135 4t (PTFE)": "32A gasket D135 4t (PTFE)", "40A 가스켓 (PTFE)": "40A gasket (PTFE)", "드라이브4 커버 (PVC)": "Drive 4 cover (PVC)", "팬 AC220V용 SSR 95A": "SSR 95A for fan AC220V", "전자 접촉기 9A (LS)": "Magnetic contactor 9A (LS)", "체크 밸브 D50 (PP-H/FPM)": "Check valve D50 (PP-H/FPM)", "체크 밸브 D50 (PP-H/EPDM)": "Check valve D50 (PP-H/EPDM)", "자동 공압 볼밸브 25A": "Automatic pneumatic ball valve 25A", "체인 RS40 (SUS)": "Chain RS40 (SUS)", "압력 게이지 (SMC)": "Pressure gauge (SMC)", "로드셀 (HBK)": "Load cell (HBK)", "소형 차단기 10A 3P": "Miniature circuit breaker 10A 3P", "GEMU 솔레노이드 밸브 (PVC-U)": "GEMU solenoid valve (PVC-U)", "자동 밸브 D32 (PP-H)": "Automatic valve D32 (PP-H)", "자동 밸브 D25 (PP-H)": "Automatic valve D25 (PP-H)", "D32 밸브용 다이어프램 (FKM+PTFE)": "Diaphragm for D32 valve (FKM+PTFE)", "정량 펌프 Prominent (PPT)": "Metering pump Prominent (PPT)", "수동 밸브 D63 (PP-H)": "Manual valve D63 (PP-H)", "수동 밸브 D20 (PVC-U)": "Manual valve D20 (PVC-U)", "체크 밸브 D50 (PVDF)": "Check valve D50 (PVDF)", "수동 밸브 D25 (PP-H)": "Manual valve D25 (PP-H)", "수동 밸브 D32 (PVC-U)": "Manual valve D32 (PVC-U)", "수동 밸브 D40 (PVC-U)": "Manual valve D40 (PVC-U)", "감압 밸브 D20 (PP-H)": "Pressure-reducing valve D20 (PP-H)", "펌프 WPIV-1560 (FPM)": "Pump WPIV-1560 (FPM)", "펌프 MP421 3kW": "Pump MP421 3kW", "펌프 Renner RM4 (PP)": "Pump Renner RM4 (PP)", "RM 4-18/240 480V 60Hz PP FPM UL인증": "RM 4-18/240 480V 60Hz PP FPM UL certified", "펌프 Renner RM4 (PVDF)": "Pump Renner RM4 (PVDF)", "RM 4-18/240 480V 60Hz PVDF FPM UL 인증": "RM 4-18/240 480V 60Hz PVDF FPM UL certified", "뚜껑 측면 가이드 베어링 (PEEK)": "Lid side guide bearing (PEEK)", "INLINE 부품 (SUS)": "INLINE part (SUS)", "제품명: Z-PSSF1000N10D130P SUS, 프로젝트: A869, SEA 코드: P00127143, 납품일자: 2024.04.24": "Product: Z-PSSF1000N10D130P SUS, Project: A869, SEA code: P00127143, Delivered: 2024.04.24", "beta 정량 펌프": "beta metering pump", "모델: BT5B0232 PPT, 코드: S003, 관리번호: P115 888": "Model: BT5B0232 PPT, Code: S003, Control no.: P115 888", "온도 센서 케이블": "Temperature sensor cable", "관리번호: P13443, 사양: PT100 V4 100mm": "Control no.: P13443, Spec: PT100 V4 100mm", "규격: T24.5*29*38 (INLINE/생산), 재질: PEEK, 일자: 2024.07.31, 도번: P00122155": "Spec: T24.5*29*38 (INLINE/production), Material: PEEK, Date: 2024.07.31, Drawing no.: P00122155", "자재 보관 박스": "Material storage box", "식별번호: P64629": "ID no.: P64629", "전도도 센서": "Conductivity sensor", "Code no: P00113701, Po No: 25RDMI0506144, 사양: CONDUCTIVITY JUMO CTI-750, Insp OK": "Code no: P00113701, Po No: 25RDMI0506144, Spec: CONDUCTIVITY JUMO CTI-750, Insp OK", "Code no: P00048825, Po No: 24RDMI110723, 규격: UIP-0604 I-LOK, Insp OK": "Code no: P00048825, Po No: 24RDMI110723, Spec: UIP-0604 I-LOK, Insp OK", "Code no: P00040574, Po No: OPL-25-RDMB-68, 규격: Z_AS568A-328 FPM, Insp OK": "Code no: P00040574, Po No: OPL-25-RDMB-68, Spec: Z_AS568A-328 FPM, Insp OK", "Code no: P00051245, Po No: Request WoonSung Park, 규격: AN326. FPM, Insp OK": "Code no: P00051245, Po No: Request WoonSung Park, Spec: AN326. FPM, Insp OK", "Code no: IP00054128, Po No: 25RDMI1204237 PA867, 규격: P52, EPDM, Insp OK": "Code no: IP00054128, Po No: 25RDMI1204237 PA867, Spec: P52, EPDM, Insp OK", "Code no: IP00182350, Po No: 25RDMI0913199, 규격: Z-P65, EPDM, Insp OK": "Code no: IP00182350, Po No: 25RDMI0913199, Spec: Z-P65, EPDM, Insp OK", "O-링 부품": "O-ring part", "부품명: P00061715, 발주번호: A728, A730, 규격: P70, EPDM (생산용), 발주/담당: 김규진 / 최지훈": "Part no.: P00061715, PO no.: A728, A730, Spec: P70, EPDM (for production), Ordered by: Kim Gyujin / Choi Jihoon", "육각 BOLT": "Hex BOLT", "부품명: B00078645, 규격: M8*15 (INLINE/생산), 재질: PEEK, 일자: 2024.01.15 / 검수: A867~873": "Part no.: B00078645, Spec: M8*15 (INLINE/production), Material: PEEK, Date: 2024.01.15 / Inspection: A867~873", "Code no: B00000588, Po No: 25RDMI0326105, 규격: M5*20, PVDF, Insp OK": "Code no: B00000588, Po No: 25RDMI0326105, Spec: M5*20, PVDF, Insp OK", "접시머리 BOLT (-)": "Flat-head BOLT (-)", "부품명: B00001108, 규격: M8*20 (A863/생산), 재질: PVDF, 일자: 2024.02.23 / 검수: A863": "Part no.: B00001108, Spec: M8*20 (A863/production), Material: PVDF, Date: 2024.02.23 / Inspection: A863", "일자 BOLT": "Slotted BOLT", "부품명: B00001310, 규격: M6*20 (BATCH/생산), 재질: PEEK, 일자: 2024.04.25 / 검수: A864": "Part no.: B00001310, Spec: M6*20 (BATCH/production), Material: PEEK, Date: 2024.04.25 / Inspection: A864", "Code no: B00079791, Po No: 25RDMB012365, 규격: M6*10 PEEK, Insp OK": "Code no: B00079791, Po No: 25RDMB012365, Spec: M6*10 PEEK, Insp OK", "Code no: B00079785, Po No: 25RDMI0409112PA871, 규격: straight head M8X25 PEEK, Insp OK": "Code no: B00079785, Po No: 25RDMI0409112PA871, Spec: straight head M8X25 PEEK, Insp OK", "Code no: P00162397 (상단 P00062409 중첩), Po No: 25RDMI0820185": "Code no: P00162397 (overlaps top P00062409), Po No: 25RDMI0820185", "Code no: P00177645, Po No: 25RDMI0721167, 재질: PEEK, Insp OK": "Code no: P00177645, Po No: 25RDMI0721167, Material: PEEK, Insp OK", "Code no: IP00183615, Po No: 25RDMI1009214, 재질: SUS304, Insp OK": "Code no: IP00183615, Po No: 25RDMI1009214, Material: SUS304, Insp OK", "Code no: P00052134, Po No: 25RDMB032681, 재질: PEEK, Insp OK": "Code no: P00052134, Po No: 25RDMB032681, Material: PEEK, Insp OK", "Code no: IP00197391, Po No: 26RDMI0120249, 규격: 130H-CCF-X-011GSNT-F32A-EYA, Insp OK": "Code no: IP00197391, Po No: 26RDMI0120249, Spec: 130H-CCF-X-011GSNT-F32A-EYA, Insp OK", "Code no: P00053669, Po No: OPL-25-RDMI-67, 모델: AZBIL HPQ-D12-W, Insp OK": "Code no: P00053669, Po No: OPL-25-RDMI-67, Model: AZBIL HPQ-D12-W, Insp OK", "렌치 볼트 (좌측 소형 수납)": "Socket-head bolts (left, small storage)", "규격: M5 x 10, 12, 15, 18, 20, 25, 30, 35, 45, 라벨: IB00000008 (Po: 25RDMI1204237, PA868)": "Spec: M5 x 10, 12, 15, 18, 20, 25, 30, 35, 45, Label: IB00000008 (Po: 25RDMI1204237, PA868)", "라벨기": "Label maker", "라벨기 - SEA 라벨 부착": "Label maker - SEA label attached", "O-ring 보관함 (AFLAS)": "O-ring storage bin (AFLAS)", "O-ring 보관함 (AFLAS) - 상단 식별번호 라벨 부착, 본체 표기: AFLAS O-ring": "O-ring storage bin (AFLAS) - ID label on top, marked on body: AFLAS O-ring", "O-ring 보관함 (EPDM)": "O-ring storage bin (EPDM)", "O-ring 보관함 (EPDM) - 본체 표기: (EPDM) O-ring": "O-ring storage bin (EPDM) - marked on body: (EPDM) O-ring", "Storage Tote (보관함)": "Storage Tote", "Storage Tote (보관함) - 규격: 12 x 16.78 x 6.6 in (14.19 L), 바코드: 0 25947 72510 6": "Storage Tote - Size: 12 x 16.78 x 6.6 in (14.19 L), Barcode: 0 25947 72510 6", "육각 너트 (벌크)": "Hex nuts (bulk)", "육각 너트 (벌크) - 소재: PEEK/플라스틱 계열 추정": "Hex nuts (bulk) - Material: presumed PEEK/plastic", "Peek 볼트 보관함": "PEEK bolt storage bin", "Peek 볼트 보관함 - 표기: Peek (-) M8x15, 20, 25, 30, 내부: M6x20 소포장 등 포함": "PEEK bolt storage bin - Marked: Peek (-) M8x15, 20, 25, 30; inside: M6x20 small packs, etc.", "Peek 장축 볼트 보관함": "PEEK long bolt storage bin", "Peek 장축 볼트 보관함 - 표기: Peek (-) M8x40, 50, 55, 65": "PEEK long bolt storage bin - Marked: Peek (-) M8x40, 50, 55, 65", "15A GASKET - 재질: EPDM": "15A GASKET - Material: EPDM", "일자 피팅 (소형 박스 상단)": "Straight fittings (small box, top)", "일자 피팅 (소형 박스 상단) - 규격: 1/8, 3/8 일자 피팅": "Straight fittings (small box, top) - Spec: 1/8, 3/8 straight fittings", "일자 피팅 (소형 박스 하단)": "Straight fittings (small box, bottom)", "일자 피팅 (소형 박스 하단) - 규격: 1/2, 3/8 일자 피팅": "Straight fittings (small box, bottom) - Spec: 1/2, 3/8 straight fittings", "일자 피팅 (타워 좌상단)": "Straight fittings (tower, upper left)", "일자 피팅 (타워 좌상단) - 규격: 3/8, 1/4 일자": "Straight fittings (tower, upper left) - Spec: 3/8, 1/4 straight", "SUS 밸브 (타워 중앙상단)": "SUS valves (tower, upper center)", "SUS 밸브 (타워 중앙상단) - 규격: SUS 밸브 8파이 (CP 8094)": "SUS valves (tower, upper center) - Spec: SUS valve 8 mm (CP 8094)", "SUS Valve / 배관 (타워 중앙중단)": "SUS valves / piping (tower, middle center)", "SUS Valve / 배관 (타워 중앙중단) - 품목: SUS Valve, SUS 배관 부속": "SUS valves / piping (tower, middle center) - Items: SUS valves, SUS pipe fittings", "Dosing Pump fitting (타워 중앙하단)": "Dosing Pump fitting (tower, lower center)", "Dosing Pump fitting (타워 중앙하단) - 품목: Dosing Pump fitting": "Dosing Pump fitting (tower, lower center) - Items: Dosing Pump fitting", "인서트 / 페럴 (타워 우하단)": "Inserts / ferrules (tower, lower right)", "인서트 / 페럴 (타워 우하단) - 품목: 인서트, 페럴": "Inserts / ferrules (tower, lower right) - Items: inserts, ferrules", "3-Way Valve (우측 타워 좌상단)": "3-Way Valve (right tower, upper left)", "3-Way Valve (우측 타워 좌상단) - 규격: Gemu 1/4\" 3-Way valve": "3-Way Valve (right tower, upper left) - Spec: Gemu 1/4\" 3-Way valve", "상아 피팅 (우측 타워 좌하단)": "Sang-A fittings (right tower, lower left)", "상아 피팅 (우측 타워 좌하단) - 품목: 상아 피팅": "Sang-A fittings (right tower, lower left) - Items: Sang-A fittings", "Flare Nut (우측 타워 중앙상단)": "Flare Nut (right tower, upper center)", "Flare Nut (우측 타워 중앙상단) - 품목: Flare Nut 종류 (성일케미칼 부품 포함)": "Flare Nut (right tower, upper center) - Items: assorted Flare Nuts (incl. Sungil Chemical parts)", "2-Way Valve (우측 타워 우상단)": "2-Way Valve (right tower, upper right)", "2-Way Valve (우측 타워 우상단) - 규격: 2way valve (Sampling Port)": "2-Way Valve (right tower, upper right) - Spec: 2way valve (Sampling Port)", "유광제 보관함 (우측 타워 우하단)": "Polishing agent storage (right tower, lower right)", "유광제 보관함 (우측 타워 우하단) - 품목: 유광제 (Polishing Bath 기타 등)": "Polishing agent storage (right tower, lower right) - Items: polishing agent (Polishing Bath, etc.)", "SUS316 육각볼트 (장축)": "SUS316 hex bolts (long)", "SUS316 육각볼트 (장축) - 수기: M8 x 45, 50, 55, 60, 내부 라벨: SUS316 육각볼트 M8 X 40": "SUS316 hex bolts (long) - Handwritten: M8 x 45, 50, 55, 60; inner label: SUS316 hex bolt M8 X 40", "볼트 소포장 (좌측 타워 상단)": "Bolt small packs (left tower, top)", "볼트 소포장 (좌측 타워 상단) - 규격: M8 x 12, 20, 25, 35": "Bolt small packs (left tower, top) - Spec: M8 x 12, 20, 25, 35", "볼트 소포장 (좌측 타워 하단)": "Bolt small packs (left tower, bottom)", "볼트 소포장 (좌측 타워 하단) - 규격: M10 x 20, 30 / M12 x 45": "Bolt small packs (left tower, bottom) - Spec: M10 x 20, 30 / M12 x 45", "렌치볼트 (우측 상단)": "Socket-head bolts (right, top)", "렌치볼트 (우측 상단) - 규격: M6 x 35": "Socket-head bolts (right, top) - Spec: M6 x 35", "렌치볼트 (우측 하단 대형)": "Socket-head bolts (right, bottom, large)", "렌치볼트 (우측 하단 대형) - 규격: M8 X 15": "Socket-head bolts (right, bottom, large) - Spec: M8 X 15", "렌치 볼트 (우측 타워 상단)": "Socket-head bolts (right tower, top)", "렌치 볼트 (우측 타워 상단) - 규격: 렌치볼트 (SS316) M6 x 10, x 20, x 12": "Socket-head bolts (right tower, top) - Spec: socket-head bolt (SS316) M6 x 10, x 20, x 12", "렌치 볼트 (우측 타워 하단)": "Socket-head bolts (right tower, bottom)", "렌치 볼트 (우측 타워 하단) - 규격: 렌치 볼트 (SS 304) M6 x 15": "Socket-head bolts (right tower, bottom) - Spec: socket-head bolt (SS 304) M6 x 15", "렌치 볼트 (좌측 2단 상단)": "Socket-head bolts (left, 2nd tier, top)", "렌치 볼트 (좌측 2단 상단) - 규격: 렌치볼트 (SS316) M6 x 25, 30, 20": "Socket-head bolts (left, 2nd tier, top) - Spec: socket-head bolt (SS316) M6 x 25, 30, 20", "렌치 볼트 (좌측 2단 하단)": "Socket-head bolts (left, 2nd tier, bottom)", "렌치 볼트 (좌측 2단 하단) - 규격: 렌치 볼트 (SS316) M6 x 30": "Socket-head bolts (left, 2nd tier, bottom) - Spec: socket-head bolt (SS316) M6 x 30", "렌치 볼트 (우측 단독)": "Socket-head bolts (right, standalone)", "렌치 볼트 (우측 단독) - 규격: 렌치 볼트 (SS316) M6 x 40, x 45, x 50, x 60": "Socket-head bolts (right, standalone) - Spec: socket-head bolt (SS316) M6 x 40, x 45, x 50, x 60", "육각 볼트 (노란 뚜껑)": "Hex bolts (yellow lid)", "육각 볼트 (노란 뚜껑) - 규격: 육각 M8 x 40, M8 x 45": "Hex bolts (yellow lid) - Spec: hex M8 x 40, M8 x 45", "육각 볼트 (흰색 뚜껑)": "Hex bolts (white lid)", "육각 볼트 (흰색 뚜껑) - 규격: 육각 M6 x 15, M8 x 35": "Hex bolts (white lid) - Spec: hex M6 x 15, M8 x 35", "육각 볼트 (투명 박스)": "Hex bolts (clear box)", "육각 볼트 (투명 박스) - 규격: 육각 M8x25, 30 / M10x20, 25, 55 / M12x50, 55, 70 / M14x50, 60 / M16x90, 95": "Hex bolts (clear box) - Spec: hex M8x25, 30 / M10x20, 25, 55 / M12x50, 55, 70 / M14x50, 60 / M16x90, 95", "육각 볼트 (노란 뚜껑 우측)": "Hex bolts (yellow lid, right)", "육각 볼트 (노란 뚜껑 우측) - 규격: 육각 M8x20": "Hex bolts (yellow lid, right) - Spec: hex M8x20", "앵커 볼트 (소형 박스)": "Anchor bolts (small box)", "앵커 볼트 (소형 박스) - 규격: 앵커 볼트 3/8\" x 3\"": "Anchor bolts (small box) - Spec: anchor bolt 3/8\" x 3\"", "코팅 볼트/와셔 (중형 박스)": "Coated bolts/washers (medium box)", "코팅 볼트/와셔 (중형 박스) - 품목: 코팅 볼트, 세트 와셔 (테프론)": "Coated bolts/washers (medium box) - Items: coated bolts, set washers (Teflon)", "코팅 와셔 (상단 트레이)": "Coated washers (top tray)", "코팅 와셔 (상단 트레이) - 품목: 코팅 와셔 (테프론)": "Coated washers (top tray) - Items: coated washers (Teflon)", "앵커 볼트 (하단 녹색 뚜껑)": "Anchor bolts (bottom, green lid)", "앵커 볼트 (하단 녹색 뚜껑) - 규격: M6 (SUS316) 앵커 볼트": "Anchor bolts (bottom, green lid) - Spec: M6 (SUS316) anchor bolt", "평와셔 / 렌치 볼트 (좌측 상단)": "Flat washers / socket-head bolts (left, top)", "평와셔 / 렌치 볼트 (좌측 상단) - 평와셔: M4, 6, 10, 렌치 볼트: M4x8, 10, 12, 15": "Flat washers / socket-head bolts (left, top) - Flat washers: M4, 6, 10; socket-head bolts: M4x8, 10, 12, 15", "스프링와셔 (좌측 하단)": "Spring washers (left, bottom)", "스프링와셔 (좌측 하단) - 규격: 스프링와셔 M8": "Spring washers (left, bottom) - Spec: spring washer M8", "스프링와셔 (중앙 하단)": "Spring washers (center, bottom)", "스프링와셔 (중앙 하단) - 규격: 스프링와셔 M4, 5, 6, 10": "Spring washers (center, bottom) - Spec: spring washer M4, 5, 6, 10", "평와셔 (우측 하단)": "Flat washers (right, bottom)", "평와셔 (우측 하단) - 규격: M5, M8, M12 평와셔": "Flat washers (right, bottom) - Spec: M5, M8, M12 flat washers", "둥근머리 볼트 (타워 좌상단)": "Round-head bolts (tower, upper left)", "둥근머리 볼트 (타워 좌상단) - 규격: 둥근머리 볼트 M4 x 10, 12, 15": "Round-head bolts (tower, upper left) - Spec: round-head bolt M4 x 10, 12, 15", "둥근머리 볼트 (타워 좌중단)": "Round-head bolts (tower, middle left)", "둥근머리 볼트 (타워 좌중단) - 규격: 둥근머리 볼트 M5 x 10, 12, 15": "Round-head bolts (tower, middle left) - Spec: round-head bolt M5 x 10, 12, 15", "둥근머리 볼트 (타워 좌하단)": "Round-head bolts (tower, lower left)", "둥근머리 볼트 (타워 좌하단) - 규격: 둥근머리 M8 x 12, 15": "Round-head bolts (tower, lower left) - Spec: round-head M8 x 12, 15", "둥근머리 볼트 (타워 중앙중단)": "Round-head bolts (tower, middle center)", "둥근머리 볼트 (타워 중앙중단) - 규격: 둥근머리 볼트 M4 x 18, 20": "Round-head bolts (tower, middle center) - Spec: round-head bolt M4 x 18, 20", "둥근머리 볼트 (타워 중앙하단)": "Round-head bolts (tower, lower center)", "둥근머리 볼트 (타워 중앙하단) - 규격: 둥근머리 볼트 M5 x 18, 20, x 10": "Round-head bolts (tower, lower center) - Spec: round-head bolt M5 x 18, 20, x 10", "접시머리 볼트 (타워 우상단)": "Flat-head bolts (tower, upper right)", "접시머리 볼트 (타워 우상단) - 규격: 접시머리 볼트 M6 x 2, 5, 10, 12, 15, 바코드: 25RDMI09 23199": "Flat-head bolts (tower, upper right) - Spec: flat-head bolt M6 x 2, 5, 10, 12, 15, Barcode: 25RDMI09 23199", "접시머리 볼트 (타워 우중단)": "Flat-head bolts (tower, middle right)", "접시머리 볼트 (타워 우중단) - 규격: 접시머리 M8 x 25, x 40": "Flat-head bolts (tower, middle right) - Spec: flat-head M8 x 25, x 40", "접시머리 볼트 (타워 우하단)": "Flat-head bolts (tower, lower right)", "접시머리 볼트 (타워 우하단) - 규격: 접시머리 M6 x 40": "Flat-head bolts (tower, lower right) - Spec: flat-head M6 x 40", "너트 류 (하단 좌측)": "Nuts (bottom left)", "너트 류 (하단 좌측) - 규격: 너트 M10, 12, 14, 16": "Nuts (bottom left) - Spec: nut M10, 12, 14, 16", "너트 류 (하단 중앙)": "Nuts (bottom center)", "너트 류 (하단 중앙) - 규격: 너트 M6, 8": "Nuts (bottom center) - Spec: nut M6, 8", "풋밸브(PP)": "Foot valve (PP)", "Foot Valve(PP) - OPL 가공품, 주요파트": "Foot Valve(PP) - OPL machined part, key part", "풋밸브(PVDF)": "Foot valve (PVDF)", "Foot Valve(PVDF) - OPL 가공품, 주요파트": "Foot Valve(PVDF) - OPL machined part, key part", "O-RING, AN219, HI-MEX 사용안함": "O-RING, AN219, HI-MEX not used", "O-RING, V53, VITON, 내경: 52.5, 두께: 4": "O-RING, V53, VITON, ID: 52.5, thickness: 4", "Z-M14 X 2(좌)-NUT_BATH_COVER_SUS304": "Z-M14 X 2(LH)-NUT_BATH_COVER_SUS304", "LM BLOCK, THK, HSR45BSSF, 레이던트 처리": "LM BLOCK, THK, HSR45BSSF, Raydent treated", "SENSOR, 사용 금지, CR18-8DP, PA SICK 센서 대체 요청": "SENSOR, do not use, CR18-8DP, PA, replace with SICK sensor (requested)", "REDUCER, ATG, PGX120-H-25, 2단": "REDUCER, ATG, PGX120-H-25, 2-stage", "Mazzei_Injector_878-2, 미사용_PVDF, P00035337로 사용": "Mazzei_Injector_878-2, unused_PVDF, use P00035337 instead", "UMRHW50, MISUMI, 외경:50 내경:20 폭16": "UMRHW50, MISUMI, OD:50 ID:20 width 16", "LEVEL SENSOR 800_SENSOR, SUS316 태양센서": "LEVEL SENSOR 800_SENSOR, SUS316 Taeyang sensor", "LEVEL SENSOR 700_SENSOR, SUS316 태양센서": "LEVEL SENSOR 700_SENSOR, SUS316 Taeyang sensor", "SSR, 단종 SGT965360E 50A(FANAC220V), 방열판, 팬포함": "SSR, discontinued SGT965360E 50A(FANAC220V), heat sink, fan included", "MCCB, UTS400N_FTU_350A_3P_LL_UL 35kA 정격/순시 고정": "MCCB, UTS400N_FTU_350A_3P_LL_UL 35kA rated/instantaneous fixed", "SMPS, NDR-480-24, 입력:단상 90~264VAC,": "SMPS, NDR-480-24, input: single-phase 90~264VAC,", "Hose Band, 고압용 120mm더블 SUS304-상아뉴매틱 HDS-120": "Hose Band, high-pressure 120mm double SUS304 - Sang-A Pneumatic HDS-120", "MCCB, UTS600N_FTU_500A_3P_L_UL 35kA 정격/순시고정": "MCCB, UTS600N_FTU_500A_3P_L_UL 35kA rated/instantaneous fixed", "MCCB, UTS600N_FTU_600A_3P_L_UL35kA정격/순시고정": "MCCB, UTS600N_FTU_600A_3P_L_UL 35kA rated/instantaneous fixed", "Servo Motor_HG, Mitsubishi, HG-SR102, 1.0KW, UL인증": "Servo Motor_HG, Mitsubishi, HG-SR102, 1.0KW, UL certified", "Servo Motor_HG, Mitsubishi,HG-SR102B,1KW, Brake,UL인증": "Servo Motor_HG, Mitsubishi,HG-SR102B,1KW, Brake, UL certified", "PLC Base, Q38B, 8 Slot, Q시리즈 유닛 장착용": "PLC Base, Q38B, 8 Slot, for mounting Q-series units", "PLC, Q61P, 100~240VAC, 5V/6ADC, 적용:Q series,": "PLC, Q61P, 100~240VAC, 5V/6ADC, for: Q series,", "CC-LINK Input, AJ65SBTB1-32D, 32점": "CC-LINK Input, AJ65SBTB1-32D, 32 points", "Remote I/O Output Module, AJ65SBTB1-32TE1, PNP형, 출력:32점,": "Remote I/O Output Module, AJ65SBTB1-32TE1, PNP type, output: 32 points,", "Analog Input Remote Module, AJ65SBT2B-64AD, 4Channel, 입력전압: 10VDC,": "Analog Input Remote Module, AJ65SBT2B-64AD, 4Channel, input voltage: 10VDC,", "Inverter, FR-E840-3.7K-EA, 삼상400VAC, 3.7kW, 표준제어회로": "Inverter, FR-E840-3.7K-EA, 3-phase 400VAC, 3.7kW, standard control circuit", "Inverter, FR-E840-2.2K-EA, 삼상400VAC, 2.2kW, 표준제어회로": "Inverter, FR-E840-2.2K-EA, 3-phase 400VAC, 2.2kW, standard control circuit", "Remote I/O Module, AJ65SBTB1-32DTE1, PNP형, DC입력16점,출력16점": "Remote I/O Module, AJ65SBTB1-32DTE1, PNP type, DC input 16 pts, output 16 pts", "Safety PLC, G9SP-N20S D40A 최대 30EA": "Safety PLC, G9SP-N20S D40A max 30EA", "TIC, E5DC-QX0DSM-015, RS-485 통신, DC전원,": "TIC, E5DC-QX0DSM-015, RS-485 communication, DC power,", "SENSOR(RTD), PT100옴3선식5M100L(K-TYPE3M)": "SENSOR(RTD), PT100Ω 3-wire 5M 100L (K-TYPE 3M)", "SENSOR(RTD), PT100옴3선식10M100L(K-TYPE3M)": "SENSOR(RTD), PT100Ω 3-wire 10M 100L (K-TYPE 3M)", "Thermometer, SENSOR(RTD) CA센서, 2선식, 10M, 100L, P=10cm": "Thermometer, SENSOR(RTD) CA sensor, 2-wire, 10M, 100L, P=10cm", "LM GUIDE RAIL, THK, HSR45-1030LF, 레인던트 처리, DWG 도면": "LM GUIDE RAIL, THK, HSR45-1030LF, Raydent treated, DWG drawing", "Electric flow heater SDE - Type 2 150kW, 120424, SIEKERKOTTE,150KW,480V,3P,UL인_B": "Electric flow heater SDE - Type 2 150kW, 120424, SIEKERKOTTE,150KW,480V,3P,UL certified_B", "TU Roller D50_d12 Bearing AS, 애즈, Ø50*20t SUS304+우레탄, 6201ZZ, 스냅링 경도90": "TU Roller D50_d12 Bearing AS, Aezz, Ø50*20t SUS304+urethane, 6201ZZ, snap ring, hardness 90", "Inverter FR-E840-7.5K-EA, 400VAC, 7.5kW, FR-E840-7.5K-EA, 삼상400VAC, 7.5kW, 표준제어회로": "Inverter FR-E840-7.5K-EA, 400VAC, 7.5kW, FR-E840-7.5K-EA, 3-phase 400VAC, 7.5kW, standard control circuit", "Analog Output Remote Module AJ65SBT2B-64DA, 4Channel, 10VDC,, AJ65SBT2B-64DA, 4Channel, 출력전압: 10VDC,": "Analog Output Remote Module AJ65SBT2B-64DA, 4Channel, 10VDC,, AJ65SBT2B-64DA, 4Channel, output voltage: 10VDC,", "OZONE MONITOR BMT BMT-932, BMT, BMT-932 DC용": "OZONE MONITOR BMT BMT-932, BMT, BMT-932 for DC", "RELAY SHN22324, 5A, 24VDC, 2C, LED/Diode(Surge), SHN22324, 5A, 24VDC, 2C, LED/Diode내장(서지)": "RELAY SHN22324, 5A, 24VDC, 2C, LED/Diode(Surge), SHN22324, 5A, 24VDC, 2C, built-in LED/Diode (surge)", "RELAY SOCKET AHNS21, Screw Type, 2C Contact, AHNS21, Screw Type, 2C 접점용": "RELAY SOCKET AHNS21, Screw Type, 2C Contact, AHNS21, Screw Type, for 2C contact", "PUMP (PUMA.04.K.00-2146)Renner, RM 4-18/240 480/60 PP EPDM U, Renner, RM 4-18/240 480/60 PP EPDM UL인증": "PUMP (PUMA.04.K.00-2146)Renner, RM 4-18/240 480/60 PP EPDM U, Renner, RM 4-18/240 480/60 PP EPDM UL certified", "FLOW HEATER 120187 SIEKERKOTTE 150KW, 480V, 3P, UL, 120187 SIEKERKOTTE 150KW, 480V, 3P, UL인증": "FLOW HEATER 120187 SIEKERKOTTE 150KW, 480V, 3P, UL, 120187 SIEKERKOTTE 150KW, 480V, 3P, UL certified", "PULLEY AT20-18T_60t, 두영, AT20-18T_60t, 도면 송부": "PULLEY AT20-18T_60t, Duyoung, AT20-18T_60t, drawing sent", "FLAT PULLEY Z-AT20_60t_, 두영, Z-AT20_60t_민자, 도면 송부": "FLAT PULLEY Z-AT20_60t_, Duyoung, Z-AT20_60t_plain, drawing sent", "Relay(with socket) R1T-LC-E Ass`y, R1T-LC-E Ass`y, 소형릴레이": "Relay(with socket) R1T-LC-E Ass`y, R1T-LC-E Ass`y, miniature relay", "RELAY acc STB-R1E(Short bar), STB-R1E(쇼트바), 소형릴레이 터미널 부속품": "RELAY acc STB-R1E(Short bar), STB-R1E(short bar), miniature relay terminal accessory", "Resistance Thermometer Dectectors,PT100, 3M 100L(K-TYPE 3M), PT100옴 3선식 3M 100L(K-TYPE 3M)": "Resistance Thermometer Dectectors,PT100, 3M 100L(K-TYPE 3M), PT100Ω 3-wire 3M 100L(K-TYPE 3M)", "BLOWER SAS70_7_5W_480V_UL, Tracoworld, UL, SAS70_7_5W_480V_UL, 트라코월드, UL": "BLOWER SAS70_7_5W_480V_UL, Tracoworld, UL, SAS70_7_5W_480V_UL, Tracoworld, UL", "PLC CC-LINK, QJ61BT11N, CC-Link 네트워크 모듈, Mitsubishi": "PLC CC-LINK, QJ61BT11N, CC-Link network module, Mitsubishi", "MC Wiring Module- DA-22HD, MC-9b~MC-22b DC연결용, Direct adaptor": "MC Wiring Module- DA-22HD, MC-9b~MC-22b for DC connection, Direct adaptor"};
+  var NAME_RE = (function () {
+    var ks = Object.keys(NAMES).filter(function (k) { return k.length >= 4; })
+      .sort(function (a, b) { return b.length - a.length; })
+      .map(function (k) { return k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); });
+    return ks.length ? new RegExp(ks.join('|'), 'g') : null;
+  })();
+  /* 시스템이 남기는 기록 메모·현장 메모 */
+  var DATA = {"풋밸브 가공품 OPL 파트를 가공하고 주요파트라 1-3에 두었음": "Foot valve machined part — OPL part, kept at 1-3 as a key part", "골판지 박스": "Cardboard box", "납품 식별 스티커": "Delivery ID sticker", "에스앤제이컴퍼니": "S&J Company", "권취 보관": "Stored on reel", "소형 투명함": "Small clear bin", "중형 투명함": "Medium clear bin", "투명함": "Clear bin", "투명 수납함": "Clear storage bin", "투명 박스 보관": "Stored in clear box", "(IP00021811 봉지에 들어 있음)": "(inside the IP00021811 bag)", "OPL 파트 가공품, 주요파트": "OPL machined part, key part", "적재 보관함": "Stacking bin", "ALDC/고무 코팅 씰": "ALDC/rubber-coated seal", "OPL 구석": "OPL corner", "OPL렉": "OPL rack", "OPL렉 2층": "OPL rack, 2nd level", "PBCR룸 1번렉 바로 옆": "PBCR room, right next to rack 1", "선반: 너트 류": "Shelf: nuts", "선반: 와셔 류": "Shelf: washers", "선반: 육각 볼트 류 (SUS 316)": "Shelf: hex bolts (SUS 316)", "비닐 포장": "Plastic bag", "박스 포장": "Boxed", "포장 박스": "Packing box", "전용 박스": "Dedicated box", "지퍼백 소포장": "Small zip-bag packs", "지퍼백 포장": "Zip bag", "트레이 수납": "Tray storage", "벌크 보관": "Bulk storage", "HDX 보관함": "HDX storage bin", "플라스틱 컨테이너": "Plastic container", "삼원그린 주식회사": "Samwon Green Co., Ltd.", "삼원특수고무": "Samwon Special Rubber", "(주)성일케미칼": "Sungil Chemical Co., Ltd.", "주성일케미칼 외": "Sungil Chemical, etc.", "상아 (SANG-A)": "Sang-A (SANG-A)", "SENSOR 말굽센서": "SENSOR horseshoe (slot) sensor", "참고 이미지(인터넷)": "Reference image (web)", "라벨에 재질 표기 없음": "No material marked on label", "테스트":"test","입력 테스트":"input test","테스트확인":"test check","10/8 이중희B 1개 출고(2 ->1)": "10/8 Lee Jung-hee (B) issued 1 (2 → 1)"};
+  for (var dk in DATA) NAMES[dk] = DATA[dk];
+  var NOTE = [
+    [/정보 수정 \(수량 직접 변경\)/g, 'Info edit (qty changed directly)'], [/정보 수정/g, 'Info edit'],
+    [/신규 등록/g, 'New item registered'], [/품목 삭제/g, 'Item deleted'],
+    [/오프라인 실사\(미반영\)/g, 'Offline count (not applied)'], [/\(오프라인 실사\) 위치 /g, '(offline count) Loc '], [/\(오프라인\)/g, '(offline)'],
+    [/\[품목 없음 — 수량 미반영\]/g, '[item missing — qty not applied]'], [/\[재고 부족: 기존 (\d+)개 → 0개\]/g, '[short stock: $1 → 0]'],
+    [/(\d+)월\s?(\d+)일 확인: 실물 없음, (\d+)→(\d+) 조정/g, 'Checked $1/$2: not found, adjusted $3→$4'],
+    [/(\d+)월\s?(\d+)일 확인시 재고\s?(\d+)개\.?/g, 'Checked $1/$2: $3 in stock.'], [/신규 (\d+)개\s?추가?\S*/g, '$1 new added'],
+    [/알파레타 원본 No\./g, 'Alpharetta source No.'], [/알파레타에서 가져옴/g, 'Brought from Alpharetta'], [/; 출고 /g, '; Issued '],
+    [/코드 영문 접두어 없음 — 원본 확인 필요/g, 'Code has no letter prefix — check source'], [/코드 형식 특이 — 원본 확인 필요/g, 'Unusual code format — check source'],
+    [/보관위치 비어있음/g, 'Storage location empty'], [/원본 수량 비어있음 → 0 처리/g, 'Source qty empty → set to 0'],
+    [/원본 수량값 "([^"]*)" → 0 처리, 확인 필요/g, 'Source qty "$1" → set to 0, check'],
+    [/자동 테스트 보정: deleteLog 수량 미복원으로 인한 수량 원복\((\d+)로 복귀\)/g, 'Auto-test fix: qty restored because deleteLog did not restore it (back to $1)'],
+    [/PBCR 사진 재사용/g, 'PBCR photo reused'], [/(\d+)항차 입고, 즉시 사용으로 재고 0/g, 'Received in shipment $1, used immediately — stock 0'],
+    [/수기: /g, 'Handwritten: ']
+  ];
+  /* 새 품목용 용어 치환 (사전에 없는 이름) */
+  var GLOSS = [
+    ['품명 미기재','Unnamed part'],['렌치볼트','socket-head bolt'],['렌치 볼트','socket-head bolt'],['접시머리','flat-head'],['둥근머리','round-head'],
+    ['감압 밸브','pressure-reducing valve'],['체크 밸브','check valve'],['수동 밸브','manual valve'],['자동 밸브','automatic valve'],['솔레노이드','solenoid'],
+    ['다이어프램','diaphragm'],['밸브','valve'],['볼트','bolt'],['너트','nut'],['와셔','washer'],['센서','sensor'],['케이블','cable'],['펌프','pump'],
+    ['배관','pipe'],['서포트','support'],['커버','cover'],['피팅','fitting'],['오링','O-ring'],['가스켓','gasket'],['패킹','packing'],['히터','heater'],
+    ['그리퍼','gripper'],['홀더','holder'],['브래킷','bracket'],['플랜지','flange'],['엘보','elbow'],['레듀서','reducer'],['유니온','union'],['소켓','socket'],
+    ['베어링','bearing'],['샤프트','shaft'],['롤러','roller'],['핸들','handle'],['손잡이','handle'],['스위치','switch'],['레벨','level'],['온도','temperature'],
+    ['압력','pressure'],['전도도','conductivity'],['유량계','flow meter'],['보관함','storage bin'],['보관 박스','storage box'],['부품','part'],['조립품','assembly'],
+    ['육각','hex'],['앵커','anchor'],['스프링','spring'],['평와셔','flat washer'],['노즐','nozzle'],['필터','filter'],['오존','ozone'],['용접','weld'],
+    ['신형','new type'],['투명','clear'],['백색','white'],['흰색','white'],['회색','gray'],['녹색','green'],['황색','yellow'],['노란','yellow'],
+    ['상부','upper'],['하부','lower'],['중앙','center'],['좌측','left'],['우측','right'],['상단','top'],['하단','bottom'],['타워','tower'],
+    ['인증','certified'],['사용안함','not used'],['사용 금지','do not use'],['단종','discontinued'],['규격','Spec'],['재질','Material'],['모델','Model'],['사양','Spec'],['바이톤','Viton'],['테프론','Teflon'],['아플라스','Aflas']
+  ];
+  function frag(x) {
+    if (NAME_RE) x = x.replace(NAME_RE, function (m) { return NAMES[m]; });
+    NOTE.forEach(function (f) { x = x.replace(f[0], f[1]); });
+    if (/[가-힣]/.test(x)) { var y = x; GLOSS.forEach(function (g) { y = y.split(g[0]).join(g[1]); }); if (!/[가-힣]/.test(y)) x = y.charAt(0).toUpperCase() + y.slice(1); }
+    return x;
+  }
   function tr(s) {
     if (!s || !/[가-힣]/.test(s)) return s;
     var lead = s.match(/^\s*/)[0], trail = s.match(/\s*$/)[0], core = s.trim(), r;
     if (Object.prototype.hasOwnProperty.call(D, core)) r = D[core];
+    else if (Object.prototype.hasOwnProperty.call(NAMES, core)) r = NAMES[core];
+    else if (core.indexOf(' | ') > 0) r = core.split(' | ').map(function (p) { return tr(p); }).join(' | ');
+    else if (/^, /.test(core)) r = ', ' + tr(core.slice(2));
     else {
       for (var i = 0; i < P.length; i++) {
         if (P[i][0].test(core)) { r = core.replace(P[i][0], P[i][1]); break; }
       }
-      if (r === undefined) { var x = core; F.forEach(function (f) { x = x.replace(f[0], f[1]); }); if (x !== core) r = x; }
+      if (r === undefined) { var x = core; F.forEach(function (f) { x = x.replace(f[0], f[1]); }); x = frag(x); if (x !== core) r = x; }
     }
     return r === undefined ? s : lead + r + trail;
   }
   window.__T = function (s) { return window.__LANG === 'en' ? tr(String(s)) : s; };
+
+  var ORIG = new WeakMap();   // 텍스트 노드 → [원문, 번역]
+  var AORIG = new WeakMap();  // 요소 → { 속성: [원문, 번역] }
+  var ATTRS = ['placeholder', 'title', 'aria-label'];
+
+  ['alert', 'confirm', 'prompt'].forEach(function (fn) {
+    var orig = window[fn];
+    window[fn] = function (m) { var a = [].slice.call(arguments); if (window.__LANG === 'en') a[0] = tr(String(m == null ? '' : m)); return orig.apply(window, a); };
+  });
+
+  function trText(n) {
+    var p = n.parentNode;
+    if (!p || p.nodeName === 'SCRIPT' || p.nodeName === 'STYLE' || p.nodeName === 'TEXTAREA') return;
+    var v = n.nodeValue;
+    if (!/[가-힣]/.test(v)) return;
+    var out = null;
+    if (p.classList && p.classList.contains('thumb')) out = v.trim() === '사진' ? 'No' : v.trim() === '없음' ? 'photo' : null;
+    if (!out && p.closest && p.closest('#mvStatus')) out = tr(v).replace(/(\d+)개/g, '$1 items');
+    if (!out) out = tr(v);
+    if (out && out !== v) { ORIG.set(n, [v, out]); n.nodeValue = out; }
+  }
+  function trEl(el) {
+    if (!el.getAttribute) return;
+    for (var i = 0; i < ATTRS.length; i++) {
+      var a = el.getAttribute(ATTRS[i]);
+      if (a && /[가-힣]/.test(a)) {
+        var t = tr(a);
+        if (t !== a) { var m = AORIG.get(el) || {}; m[ATTRS[i]] = [a, t]; AORIG.set(el, m); el.setAttribute(ATTRS[i], t); }
+      }
+    }
+  }
+  function each(root, fText, fEl) {
+    if (root.nodeType === 3) { fText(root); return; }
+    if (root.nodeType !== 1) return;
+    fEl(root);
+    var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT), n;
+    while ((n = w.nextNode())) { if (n.nodeType === 3) fText(n); else fEl(n); }
+  }
+  function toEnglish() { each(document.body, trText, trEl); }
+  function toKorean() {
+    each(document.body, function (n) {
+      var o = ORIG.get(n);
+      if (o && n.nodeValue === o[1]) n.nodeValue = o[0];
+      ORIG.delete(n);
+    }, function (el) {
+      var m = AORIG.get(el); if (!m) return;
+      Object.keys(m).forEach(function (k) { if (el.getAttribute(k) === m[k][1]) el.setAttribute(k, m[k][0]); });
+      AORIG.delete(el);
+    });
+  }
+
+  var titleKo = document.title, busy = false;
+  function apply() {
+    busy = true;
+    document.documentElement.lang = lang;
+    document.title = lang === 'en' ? tr(titleKo) : titleKo;
+    if (lang === 'en') toEnglish(); else toKorean();
+    var b = document.getElementById('langToggle');
+    if (b) { b.textContent = lang === 'en' ? '한' : 'EN'; b.setAttribute('aria-label', lang === 'en' ? '한국어로 보기' : 'Switch to English'); }
+    busy = false;
+  }
 
   function addToggle() {
     var theme = document.getElementById('themeToggle');
     if (!theme || document.getElementById('langToggle')) return;
     var b = document.createElement('button');
     b.id = 'langToggle'; b.type = 'button';
-    b.textContent = lang === 'en' ? '한' : 'EN';
-    b.setAttribute('aria-label', lang === 'en' ? '한국어로 보기' : 'Switch to English');
     b.style.cssText = 'background:rgba(255,255,255,.18);border:0;color:#fff;border-radius:6px;padding:6px 10px;font-size:.85rem;font-weight:700;cursor:pointer;margin-left:6px;min-width:40px';
     b.addEventListener('click', function () {
-      try { localStorage.setItem(KEY, lang === 'en' ? 'ko' : 'en'); } catch (e) {}
-      location.reload();
+      lang = window.__LANG = lang === 'en' ? 'ko' : 'en';
+      try { localStorage.setItem(KEY, lang); } catch (e) {}
+      apply();
     });
     theme.insertAdjacentElement('afterend', b);
   }
   addToggle();
-  if (lang !== 'en') return;
+  apply();
 
-  document.documentElement.lang = 'en';
-  document.title = tr(document.title);
-  ['alert', 'confirm', 'prompt'].forEach(function (fn) {
-    var orig = window[fn];
-    window[fn] = function (m) { var a = [].slice.call(arguments); a[0] = tr(String(m == null ? '' : m)); return orig.apply(window, a); };
-  });
-
-  var ATTRS = ['placeholder', 'title', 'aria-label'];
-  function trText(n) {
-    var p = n.parentNode;
-    if (!p || p.nodeName === 'SCRIPT' || p.nodeName === 'STYLE' || p.nodeName === 'TEXTAREA') return;
-    var v = n.nodeValue;
-    if (!/[가-힣]/.test(v)) return;
-    var out;
-    if (p.classList && p.classList.contains('thumb')) out = v.trim() === '사진' ? 'No' : v.trim() === '없음' ? 'photo' : null;
-    if (!out) out = tr(v);
-    if (out && out !== v) n.nodeValue = out;
-  }
-  function trEl(el) {
-    for (var i = 0; i < ATTRS.length; i++) {
-      var a = el.getAttribute && el.getAttribute(ATTRS[i]);
-      if (a && /[가-힣]/.test(a)) { var t = tr(a); if (t !== a) el.setAttribute(ATTRS[i], t); }
-    }
-  }
-  function walk(root) {
-    if (root.nodeType === 3) { trText(root); return; }
-    if (root.nodeType !== 1) return;
-    trEl(root);
-    var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT), n;
-    while ((n = w.nextNode())) { if (n.nodeType === 3) trText(n); else trEl(n); }
-  }
-  walk(document.body);
   new MutationObserver(function (ms) {
+    if (busy || lang !== 'en') return;
     ms.forEach(function (m) {
       if (m.type === 'characterData') trText(m.target);
       else if (m.type === 'attributes') trEl(m.target);
-      else m.addedNodes.forEach(walk);
+      else m.addedNodes.forEach(function (n) { each(n, trText, trEl); });
     });
   }).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ATTRS });
 })();

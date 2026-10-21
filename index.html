@@ -771,11 +771,11 @@
 </header>
 
 <section id="gate" hidden>
-  <h2>이름을 입력하세요</h2>
-  <p>수량을 바꾸면 이 이름으로 기록됩니다. 이 기기에 기억되니 처음 한 번만 입력하면 돼요.</p>
+  <h2>로그인</h2>
+  <p>맨파워 명단에 있는 한글 이름으로 들어옵니다. 이 기기에 기억되니 처음 한 번만 입력하면 돼요.</p>
   <label>이름<input id="nameInput" autocomplete="off" maxlength="30" placeholder="예: 홍길동"></label>
   <div class="err" id="gateErr"></div>
-  <button id="gateBtn">시작하기</button>
+  <button id="gateBtn">로그인</button>
 </section>
 
 <main id="main" hidden>
@@ -919,6 +919,32 @@
   };
 
   let user = store.get('user');
+  let canExport = store.get('canExport') === '1';
+  function setExportVisible() { const b = $('#exportXlsx'); if (b) b.hidden = !canExport; }
+  /* 로그인 명단 — 서버(재고앱_멀티사이트_API)에 login 기능이 배포되기 전까지 쓰는 예비 명단.
+     서버가 login 을 지원하면 서버의 마스터 Users 탭이 기준이 되고, 이 목록은 쓰이지 않는다. */
+  const ROSTER_FALLBACK = {
+    '안지석':'SEA','이훈복':'SEA','류동현':'SEA','이중희':'SEA','서현우':'SEA','안효진':'SEA',
+    '박찬희':'SEA','지창민':'SEA','이승락':'SEA','유인호':'SEA','염동민':'SEA','카인':'SEA',
+    '실비오':'외주',
+    '권기봉':'한화','최용':'한화','정용훈':'한화','홍경기':'한화','노태영':'한화','김태환':'한화','이동선':'한화'
+  };
+  const normName = s => String(s || '').replace(/\s+/g, '').toLowerCase();
+  async function checkLogin(name) {
+    try {
+      return await apiRaw('login', { user: name });
+    } catch (e) {
+      if (e.network || !/알 수 없는 요청/.test(e.message)) throw e;
+      const hit = Object.keys(ROSTER_FALLBACK).filter(k => normName(k) === normName(name))[0];
+      if (!hit) throw new Error('명단에 없는 이름입니다. 맨파워 명단의 한글 이름으로 입력하세요.');
+      return { ok: true, name: hit, role: ROSTER_FALLBACK[hit], canExport: ROSTER_FALLBACK[hit] === 'SEA' };
+    }
+  }
+  function saveLogin(d) {
+    user = d.name; canExport = !!d.canExport;
+    store.set('user', user); store.set('canExport', canExport ? '1' : '');
+    setExportVisible();
+  }
   const site = { id: 'PBCR', name: 'PBCR', map: true };   // 이 화면은 PBCR 전용 — 멀티사이트 API에 PBCR로 고정 연결
   let items = [], logs = [], openId = null, busy = false, tab = 'stock';
   let filter = { kind: '', loc: '' };   // kind: low | zero | old
@@ -1187,17 +1213,21 @@
     $('#gate').hidden = false; $('#main').hidden = true; $('#search').hidden = true; $('#tabs').hidden = true; $('#mapBtn').hidden = true;
     $('#gateErr').textContent = ''; $('#nameInput').value = ''; $('#nameInput').focus();
   }
-  $('#gateBtn').addEventListener('click', () => {
+  $('#gateBtn').addEventListener('click', async () => {
     const n = $('#nameInput').value.trim();
     if (!n) { $('#gateErr').textContent = '이름을 입력하세요.'; return; }
-    user = n; store.set('user', user); start();
+    const btn = $('#gateBtn'); btn.disabled = true; $('#gateErr').textContent = '';
+    try { saveLogin(await checkLogin(n)); start(); }
+    catch (e) { $('#gateErr').textContent = e.network ? '인터넷 연결을 확인하세요. 첫 로그인은 연결이 필요해요.' : e.message; }
+    btn.disabled = false;
   });
   $('#nameInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('#gateBtn').click(); });
 
   function start() {
     $('#gate').hidden = true; $('#main').hidden = false; $('#search').hidden = false; $('#tabs').hidden = false; $('#mapBtn').hidden = false;
-    $('#who').innerHTML = `작업자: ${esc(user)}<button id="logout">변경</button>`;
-    $('#logout').onclick = () => { store.del('user'); user = ''; $('#who').textContent = ''; showGate(); };
+    $('#who').innerHTML = `작업자: ${esc(user)}<button id="logout">로그아웃</button>`;
+    $('#logout').onclick = () => { store.del('user'); store.del('canExport'); user = ''; canExport = false; $('#who').textContent = ''; showGate(); };
+    setExportVisible();
     if (IS_GAS) $('#recvLink').hidden = true;
     setSyncLabel(); renderPendingBadge(); flush();
     load();
@@ -1980,6 +2010,7 @@
 
   $('#exportXlsx').addEventListener('click', async e => {
     const btn = e.target;
+    if (!canExport) { toast('엑셀 다운로드는 SEA 팀원만 가능합니다.', true); return; }
     if (typeof XLSX === 'undefined') { toast('엑셀 도구를 불러오지 못했습니다. 새로고침 후 다시 누르세요.', true); return; }
     btn.disabled = true; btn.textContent = '만드는 중…';
     try {
@@ -2347,7 +2378,20 @@
   $('#mapModal').addEventListener('click', e => { if (e.target.id === 'mapModal') closeMap(); });
 
   /* ---------- 시작: 주소에 ?loc=1-4 가 있으면 그 선반만 ---------- */
-  function applyParams(p) { if (p && p.loc) filter.loc = String(p.loc); if (user) start(); else showGate(); }
+  async function applyParams(p) {
+    if (p && p.loc) filter.loc = String(p.loc);
+    setExportVisible();
+    if (user) {
+      try { saveLogin(await checkLogin(user)); }
+      catch (e) {
+        if (!e.network) {   // 명단에 없는 이름(예전에 자유 입력한 이름 포함) → 다시 로그인
+          store.del('user'); store.del('canExport'); user = ''; canExport = false; setExportVisible();
+          showGate(); $('#gateErr').textContent = e.message; return;
+        }
+      }
+    }
+    if (user) start(); else showGate();
+  }
   if (IS_GAS && google.script.url) google.script.url.getLocation(l => applyParams(l.parameter || {}));
   else applyParams(Object.fromEntries(new URLSearchParams(location.search)));
 
@@ -2367,6 +2411,7 @@
     '재고':'Stock','기록':'Log','이름을 입력하세요':'Enter your name',
     '수량을 바꾸면 이 이름으로 기록됩니다. 이 기기에 기억되니 처음 한 번만 입력하면 돼요.':'Every quantity change is logged under this name. It is remembered on this device, so you only enter it once.',
     '이름':'Name','예: 홍길동':'e.g. John Smith','시작하기':'Start','이름을 입력하세요.':'Please enter your name.',
+    '로그인':'Log in','로그아웃':'Log out','맨파워 명단에 있는 한글 이름으로 들어옵니다. 이 기기에 기억되니 처음 한 번만 입력하면 돼요.':'Log in with your Korean name as it appears on the manpower list. It is remembered on this device.',
     '불러오는 중…':'Loading…','전체 품목':'Total items','최소 수량 미만':'Below minimum','재고 0':'Out of stock','실사 필요':'Count needed',
     '보기':'View','기본순':'Default','코드별 묶음':'Group by code','보관장소순':'By location','이름순':'By name','항차별':'By shipment',
     '수량 많은순':'Qty: high → low','수량 적은순':'Qty: low → high',

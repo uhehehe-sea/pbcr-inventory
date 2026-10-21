@@ -772,7 +772,7 @@
 
 <section id="gate" hidden>
   <h2>로그인</h2>
-  <p>맨파워 명단에 있는 한글 이름으로 들어옵니다. 이 기기에 기억되니 처음 한 번만 입력하면 돼요.</p>
+  <p>에스이에이 직원명단에 있는 한글 이름으로 들어옵니다. 이 기기에 기억되니 처음 한 번만 입력하면 돼요.</p>
   <label>이름<input id="nameInput" autocomplete="off" maxlength="30" placeholder="예: 홍길동"></label>
   <div class="err" id="gateErr"></div>
   <button id="gateBtn">로그인</button>
@@ -920,6 +920,11 @@
 
   let user = store.get('user');
   let canExport = store.get('canExport') === '1';
+  const LOGIN_VER = '20261022';   // 이 버전과 마커가 다르면 첫 접속 시 저장된 로그인을 지우고 다시 입력받음
+  if (store.get('loginVer') !== LOGIN_VER) {
+    store.del('user'); store.del('canExport');
+    user = ''; canExport = false;
+  }
   function setExportVisible() { const b = $('#exportXlsx'); if (b) b.hidden = !canExport; }
   /* 로그인 명단 — 서버(재고앱_멀티사이트_API)에 login 기능이 배포되기 전까지 쓰는 예비 명단.
      서버가 login 을 지원하면 서버의 마스터 Users 탭이 기준이 되고, 이 목록은 쓰이지 않는다. */
@@ -936,13 +941,14 @@
     } catch (e) {
       if (e.network || !/알 수 없는 요청/.test(e.message)) throw e;
       const hit = Object.keys(ROSTER_FALLBACK).filter(k => normName(k) === normName(name))[0];
-      if (!hit) throw new Error('명단에 없는 이름입니다. 맨파워 명단의 한글 이름으로 입력하세요.');
+      if (!hit) throw new Error('명단에 없는 이름입니다. 에스이에이 직원명단의 한글 이름으로 입력하세요.');
       return { ok: true, name: hit, role: ROSTER_FALLBACK[hit], canExport: ROSTER_FALLBACK[hit] === 'SEA' };
     }
   }
   function saveLogin(d) {
     user = d.name; canExport = !!d.canExport;
     store.set('user', user); store.set('canExport', canExport ? '1' : '');
+    store.set('loginVer', LOGIN_VER);   // 재로그인 완료 표시 — 다음 접속부터는 기존처럼 기기에 기억됨
     setExportVisible();
   }
   const site = { id: 'PBCR', name: 'PBCR', map: true };   // 이 화면은 PBCR 전용 — 멀티사이트 API에 PBCR로 고정 연결
@@ -2411,7 +2417,7 @@
     '재고':'Stock','기록':'Log','이름을 입력하세요':'Enter your name',
     '수량을 바꾸면 이 이름으로 기록됩니다. 이 기기에 기억되니 처음 한 번만 입력하면 돼요.':'Every quantity change is logged under this name. It is remembered on this device, so you only enter it once.',
     '이름':'Name','예: 홍길동':'e.g. John Smith','시작하기':'Start','이름을 입력하세요.':'Please enter your name.',
-    '로그인':'Log in','로그아웃':'Log out','맨파워 명단에 있는 한글 이름으로 들어옵니다. 이 기기에 기억되니 처음 한 번만 입력하면 돼요.':'Log in with your Korean name as it appears on the manpower list. It is remembered on this device.',
+    '로그인':'Log in','로그아웃':'Log out','에스이에이 직원명단에 있는 한글 이름으로 들어옵니다. 이 기기에 기억되니 처음 한 번만 입력하면 돼요.':'Log in with your Korean name as it appears on the SEA employee list. It is remembered on this device.',
     '불러오는 중…':'Loading…','전체 품목':'Total items','최소 수량 미만':'Below minimum','재고 0':'Out of stock','실사 필요':'Count needed',
     '보기':'View','기본순':'Default','코드별 묶음':'Group by code','보관장소순':'By location','이름순':'By name','항차별':'By shipment',
     '수량 많은순':'Qty: high → low','수량 적은순':'Qty: low → high',

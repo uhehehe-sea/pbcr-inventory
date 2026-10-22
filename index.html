@@ -935,14 +935,20 @@
     '권기봉':'한화','최용':'한화','정용훈':'한화','홍경기':'한화','노태영':'한화','김태환':'한화','이동선':'한화'
   };
   const normName = s => String(s || '').replace(/\s+/g, '').toLowerCase();
+  function checkRoster(name) {
+    const hit = Object.keys(ROSTER_FALLBACK).filter(k => normName(k) === normName(name))[0];
+    if (!hit) throw new Error('명단에 없는 이름입니다. 에스이에이 직원명단의 한글 이름으로 입력하세요.');
+    return { ok: true, name: hit, role: ROSTER_FALLBACK[hit], canExport: ROSTER_FALLBACK[hit] === 'SEA' };
+  }
   async function checkLogin(name) {
     try {
-      return await apiRaw('login', { user: name });
+      const d = await apiRaw('login', { user: name });
+      // 서버 명단이 비어 있으면(serverRoster:false) 서버는 판정을 유보 → 내장 명단으로 판정
+      if (d && d.serverRoster === false) return checkRoster(name);
+      return d;
     } catch (e) {
       if (e.network || !/알 수 없는 요청/.test(e.message)) throw e;
-      const hit = Object.keys(ROSTER_FALLBACK).filter(k => normName(k) === normName(name))[0];
-      if (!hit) throw new Error('명단에 없는 이름입니다. 에스이에이 직원명단의 한글 이름으로 입력하세요.');
-      return { ok: true, name: hit, role: ROSTER_FALLBACK[hit], canExport: ROSTER_FALLBACK[hit] === 'SEA' };
+      return checkRoster(name);
     }
   }
   function saveLogin(d) {

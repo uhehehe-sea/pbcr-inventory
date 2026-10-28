@@ -1591,11 +1591,14 @@
     if (!openId) return;
     paintUse(openId, false);
   }
+  function hasTextSelection() { const sel = window.getSelection(); return !!sel && !sel.isCollapsed && sel.toString().trim() !== ''; }
   $('#list').addEventListener('click', e => {
     const gh = e.target.closest('.groupHead');
     if (gh) return;
     const el = e.target.closest('[data-act]'); if (!el) return;
     const id = el.closest('.item').dataset.id, act = el.dataset.act;
+    // 글자를 드래그해 선택한 직후의 클릭은 카드 열기/닫기로 처리하지 않는다 (다시 그리면 선택이 사라져 복사가 안 됨)
+    if ((act === 'open' || act === 'filterloc') && hasTextSelection()) return;
     if (act === 'open') { openId = openId === id ? null : id; render(); }
     if (act === 'filterloc') { const it = items.find(x => x.rid === id); if (it && it.location && !$('#mapBtn').hidden && openMap(it.location)) return; filter.loc = it && it.location ? it.location : ''; openId = null; renderChips(); render(); window.scrollTo(0, 0); }
     if (act === 'useType') { const n = prompt('사용 개수를 입력하세요', deltas[id] || 0); if (n !== null && n.trim() !== '') setDelta(id, Number(n)); }

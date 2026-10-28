@@ -260,7 +260,7 @@ function renderCountList() {
       return `<div class="locrow" data-loc="${esc(l.loc)}"><div class="loc">${esc(l.loc)}</div><div><div>품목 ${l.n}개</div></div><div class="when ${cls}">${w}</div></div>`;
     }).join('') : '<p style="color:var(--sub)">위치가 등록된 품목이 없습니다.</p>');
 }
-$('ccList').addEventListener('click', e => { const r = e.target.closest('[data-loc]'); if (r) openCountSheet(r.dataset.loc); });
+$('ccList').addEventListener('click', e => { const sel = window.getSelection(); if (sel && !sel.isCollapsed && sel.toString().trim()) return; const r = e.target.closest('[data-loc]'); if (r) openCountSheet(r.dataset.loc); });
 
 function openCountSheet(loc) {
   ccLoc = loc; Object.keys(ccInput).forEach(k => delete ccInput[k]);

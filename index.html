@@ -1365,7 +1365,7 @@
     if (filter.kind === 'low') list = list.filter(isLow);
     if (filter.kind === 'zero') list = list.filter(i => i.qty === 0);
     if (filter.kind === 'old') list = list.filter(isOld);
-    if (filter.loc) list = list.filter(i => i.location === filter.loc);
+    if (filter.loc) { const fl = normMapLoc(filter.loc); list = list.filter(i => i.location === filter.loc || normMapLoc(i.location) === fl); }
     list = list.filter(i => !pendingDel[i.rid]);
     return { list, q: rawQ };
   }
@@ -2037,56 +2037,72 @@
   });
 
   /* ---------- 구역 맵(3D) ----------
-     PBCR룸 랙 전체 배치도(손그림, 2026-10-20) 기준 — 방 둘레를 랙이 감싸는 배치:
-       위쪽 벽:   랙 7(왼쪽 모서리, 랙 6 옆) · 랙 8 · 랙 9(오른쪽) — 앞면이 아래(방 안쪽)
-                  (5 → 6 → 7 → 8 → 9 순서로 이어짐. 위쪽 벽 길이를 3등분한 추정값)
-       왼쪽 벽:   랙 6(위) · 랙 5(아래)                — 앞면이 오른쪽
-       오른쪽 벽: 랙 4(위) · 랙 3(아래)                — 앞면이 왼쪽
-       아래쪽:    랙 1(왼쪽) · 랙 2(오른쪽)            — 앞면이 위
-       랙 1·2 뒤: 팔레트 2칸(위치값 'Pallet')
-       가운데:    번호 없는 물체 2개(ZONES)
-     좌표 단위는 미터(m), 위에서 내려다볼 때 x=오른쪽, z=아래.
-     len(랙 길이)·위치는 손그림 비율로 잡은 값 — 실측 후 숫자만 고치면 됩니다.
+     PBCR룸 랙 재배치 손그림(2026-11-23) 기준 — v4.9에서 새로 구축(같은 날 번호 정정: 오른쪽 벽=6, 출입구 오른쪽=9, 아래 오른쪽 끝=7):
+       위쪽 벽(왼→오): [미지정 A] · 랙 1 · 랙 2 · 랙 3 · 랙 4 · 랙 5   — 앞면이 아래(방 안쪽)
+       오른쪽 벽:      랙 6                                          — 앞면이 왼쪽
+       왼쪽 벽(위→아래): [미지정 A] · 케이블 · [미지정 C]
+       아래쪽(왼→오):  [미지정 C] · OPL렉 · 랙 10 · 출입구(Enter) · 랙 9 · 랙 8 · 랙 7 — 앞면이 위
+       가운데:         용접(왼쪽) · 구역 B(오른쪽, 손글씨 확인 필요)
+     좌표 단위는 미터(m), 위에서 내려다볼 때 x=오른쪽, z=아래(출입구 쪽). 원점 = 방 왼쪽 위 모서리.
+     랙 1~9의 len은 예전 맵 값(실물 랙은 그대로 옮겼다고 보고 유지), 랙 10·OPL렉·물체 크기는 손그림 비율 추정값
+     — 실측 후 숫자만 고치면 됩니다.
      face: 선반 앞면이 바라보는 방향('down'·'up'·'left'·'right').
-     levels 번호는 위에서부터 1번(예: 1-1), 아래로 갈수록 커집니다(1-2, 1-3 …). */
+     levels 번호는 위에서부터 1번(예: 1-1), 아래로 갈수록 커집니다(1-2, 1-3 …).
+     loc: 랙 전체를 위치값 하나로 쓰는 랙(OPL렉)은 칸 번호 대신 이 값을 씀. */
   const RACK_DEPTH = 0.6;   // 랙 깊이(m)
   const RACKS = [
-    { id: '1', levels: 4, feet: 6, len: 2.0,  x: -1.02, z: 2.33,  face: 'up' },     // 아래쪽 왼쪽
-    { id: '2', levels: 4, feet: 6, len: 1.6,  x: 0.78,  z: 2.33,  face: 'up' },     // 아래쪽 오른쪽
-    { id: '3', levels: 4, feet: 6, len: 1.6,  x: 2.0,   z: 1.12,  face: 'left' },   // 오른쪽 아래
-    { id: '4', levels: 4, feet: 6, len: 1.13, x: 2.0,   z: -0.26, face: 'left' },   // 오른쪽 위
-    { id: '5', levels: 4, feet: 6, len: 1.78, x: -2.08, z: -0.83, face: 'right' },  // 왼쪽 아래
-    { id: '6', levels: 4, feet: 6, len: 1.49, x: -2.08, z: -2.5,  face: 'right' },  // 왼쪽 위
-    { id: '7', levels: 4, feet: 6, len: 1.19, x: -1.145, z: -3.28, face: 'down' },  // 위쪽 왼쪽 모서리(랙 6 옆)
-    { id: '8', levels: 4, feet: 6, len: 1.19, x: 0.045,  z: -3.28, face: 'down' },  // 위쪽 가운데
-    { id: '9', levels: 4, feet: 6, len: 1.19, x: 1.235,  z: -3.28, face: 'down' }   // 위쪽 오른쪽
+    { id: '1',  levels: 4, feet: 6, len: 2.0,  x: 2.05,  z: 0.35, face: 'down' },   // 위쪽 벽 1번째
+    { id: '2',  levels: 4, feet: 6, len: 1.6,  x: 4.0,   z: 0.35, face: 'down' },
+    { id: '3',  levels: 4, feet: 6, len: 1.6,  x: 5.75,  z: 0.35, face: 'down' },
+    { id: '4',  levels: 4, feet: 6, len: 1.13, x: 7.265, z: 0.35, face: 'down' },
+    { id: '5',  levels: 4, feet: 6, len: 1.78, x: 8.87,  z: 0.35, face: 'down' },   // 위쪽 벽 오른쪽 끝
+    { id: '6',  levels: 4, feet: 6, len: 1.49, x: 9.45,  z: 1.85, face: 'left' },   // 오른쪽 벽
+    { id: 'OPL', name: 'OPL렉', loc: 'OPL렉', levels: 4, feet: 6, len: 1.4, x: 1.75, z: 2.9, face: 'up' },  // 아래쪽 왼쪽
+    { id: '10', levels: 4, feet: 6, len: 0.8,  x: 2.9,   z: 2.9,  face: 'up' },     // OPL렉 옆(출입구 왼쪽)
+    { id: '9',  levels: 4, feet: 6, len: 1.19, x: 5.2,   z: 2.9,  face: 'up' },     // 출입구 오른쪽
+    { id: '8',  levels: 4, feet: 6, len: 1.19, x: 6.65,  z: 2.9,  face: 'up' },
+    { id: '7',  levels: 4, feet: 6, len: 1.19, x: 8.26,  z: 2.9,  face: 'up' }      // 아래쪽 오른쪽 끝
   ];
   const FACE_ROT = { down: 0, left: -Math.PI / 2, right: Math.PI / 2, up: Math.PI };
-  // 팔레트 자리 — 누르면 위치값 'Pallet' 재고를 보여 줌(맵에서 빛나는 대상)
-  const PALLETS = [
-    { loc: 'Pallet', x: -1.06, z: 3.25, w: 2.0, d: 1.0 },
-    { loc: 'Pallet', x: 0.78,  z: 3.25, w: 1.6, d: 1.0 }
-  ];
-  // 번호 없는 바닥 물체 — 클릭 대상 아님. 용도가 정해지면 name만 바꾸세요.
+  // 팔레트 자리 — 새 배치도에 팔레트 표시가 없어 비워 둠. 자리가 정해지면 { loc: 'Pallet', x, z, w, d } 추가
+  const PALLETS = [];
+  // 바닥 물체. loc가 있으면 클릭 가능(그 위치값 재고를 보여 줌), 없으면 표시만.
   const ZONES = [
-    { name: '구역 A', x: -0.52, z: -0.85, w: 0.8,  d: 0.5, h: 0.4 },
-    { name: '구역 B', x: 0.47,  z: -0.85, w: 0.86, d: 0.5, h: 0.4 }
+    { name: '미지정 A', x: 0.45,  z: 0.8,   w: 0.9,  d: 1.4,  h: 1.0 },   // 왼쪽 위 모서리(세로로 긴 물체)
+    { name: '케이블',   loc: '케이블', x: 0.65, z: 2.15, w: 0.8, d: 0.8, h: 1.0 },  // 왼쪽 벽
+    { name: '미지정 C', x: 0.55,  z: 2.9,   w: 0.9,  d: 0.6,  h: 0.8 },   // 왼쪽 아래 모서리
+    { name: '용접',     x: 2.425, z: 1.51,  w: 0.65, d: 0.48, h: 0.8 },   // 가운데 왼쪽
+    { name: '구역 B',   x: 6.1,   z: 1.45,  w: 0.8,  d: 0.7,  h: 0.8 }    // 가운데 오른쪽(손글씨 확인 필요)
   ];
-  const ROOM = { x1: -2.6, x2: 2.5, z1: -3.7, z2: 3.9 };   // 방 바닥 윤곽(대략)
+  const DOORS = [{ name: '출입구', x1: 3.3, x2: 4.4, z: 3.3 }];   // 아래쪽 벽 Enter
+  const ROOM = { x1: -0.05, x2: 9.85, z1: -0.05, z2: 3.3 };   // 방 바닥 윤곽(대략)
   let mapInited = false, mapScene, mapCamera, mapRenderer, mapControls, mapRaycaster, mapShelves = [], mapRafId = 0;
   let mapHighlightLoc = null;
-  const MAP_CAM_HOME = [-4.2, 8.6, -7.3];   // 첫 화면 시점(랙 7·8 뒤 모서리에서 비스듬히)
-  const MAP_TGT_HOME = [0, 0.4, 0];   // THREE가 없을 때(오프라인)도 앱이 멈추지 않게 숫자 배열로 둠
+  // 첫 화면 시점: 출입구 쪽 왼쪽 위에서 방 전체를 비스듬히 내려다봄. 화면 비율(세로 폰/가로 PC)에 맞춰 거리 자동 조정
+  const MAP_TGT_HOME = [(ROOM.x1 + ROOM.x2) / 2, 0.4, (ROOM.z1 + ROOM.z2) / 2];   // 숫자 배열(THREE 없어도 안 멈춤)
+  const MAP_CAM_DIR = [-0.42, 0.68, 0.6];
+  function mapHomePos() {
+    const rx = (ROOM.x2 - ROOM.x1) / 2, rz = (ROOM.z2 - ROOM.z1) / 2;
+    const r = Math.sqrt(rx * rx + rz * rz + 1);
+    const asp = mapCamera ? mapCamera.aspect : 1;
+    const vf = 45 * Math.PI / 180, hf = 2 * Math.atan(Math.tan(vf / 2) * asp);
+    const dist = Math.min(34, r / Math.sin(Math.min(vf, hf) / 2) * 1.0);
+    const n = Math.hypot(...MAP_CAM_DIR);
+    return MAP_CAM_DIR.map((v, i) => MAP_TGT_HOME[i] + v / n * dist);
+  }
+  function mapGoHome() { if (!mapControls) return; mapCamera.position.set(...mapHomePos()); mapControls.target.set(...MAP_TGT_HOME); mapControls.update(); }
   // 아이템 위치값을 맵 선반 이름으로 맞춤: ' 8-1 ', '8 - 1', 'Rack 8-1', '랙8-1', 'R8-1' → '8-1' / 팔레트 → 'Pallet'
   function normMapLoc(s) {
     s = String(s || '').trim();
     if (/^(pallet|팔레트)$/i.test(s)) return 'Pallet';
+    if (/^opl/i.test(s)) return 'OPL렉';                 // 'OPL렉', 'OPL 랙', 'OPL 1-4' 등 → OPL렉 한 칸
+    if (/^(cable|케이블)/i.test(s)) return '케이블';
     const m = s.match(/^(?:rack|랙|r)?\s*(\d+)\s*[-–—_.]\s*(\d+)$/i);
     return m ? m[1] + '-' + m[2] : s;
   }
   const locLabel = (rackId, levelIdx) => rackId + '-' + (levelIdx + 1);
   function mapStatusColor(loc) {
-    const list = items.filter(i => i.location === loc);
+    const list = items.filter(i => normMapLoc(i.location) === loc);
     if (!list.length) return 0x8d99ae;        // 재고 없음 — 회색
     if (list.some(isOld)) return 0xe0a52c;    // 실사 필요 — 주황
     return 0x2dbb6a;                          // 정상 — 초록
@@ -2123,7 +2139,7 @@
     const w = Math.max(1, wrap.clientWidth), h = Math.max(1, wrap.clientHeight);
     mapScene = new THREE.Scene();
     mapCamera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
-    mapCamera.position.set(...MAP_CAM_HOME);   // 아래쪽(팔레트 쪽) 위에서 비스듬히 내려다봄 → 방 전체와 랙 9개가 모두 보임
+    mapCamera.position.set(...mapHomePos());   // 방 전체(랙 10개 + OPL렉)가 한 화면에 보이는 거리
     mapRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     mapRenderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     mapRenderer.setSize(w, h);
@@ -2133,7 +2149,8 @@
     const dl = new THREE.DirectionalLight(0xffffff, 0.9); dl.position.set(-4, 7, 5); mapScene.add(dl);
     const dl2 = new THREE.DirectionalLight(0xffffff, 0.3); dl2.position.set(4, 2, -3); mapScene.add(dl2);
 
-    const grid = new THREE.GridHelper(14, 28, 0x5b73ff, 0x3a4256);
+    const grid = new THREE.GridHelper(16, 32, 0x5b73ff, 0x3a4256);
+    grid.position.set(MAP_TGT_HOME[0], 0, MAP_TGT_HOME[2]);
     grid.material.transparent = true; grid.material.opacity = 0.18; mapScene.add(grid);
 
     // 방 바닥 윤곽선
@@ -2167,7 +2184,7 @@
         });
       }
       for (let lv = 0; lv < rack.levels; lv++) {
-        const loc = locLabel(rack.id, lv);
+        const loc = rack.loc || locLabel(rack.id, lv);   // OPL렉처럼 랙 전체가 한 위치값이면 모든 칸이 같은 loc
         const y = heightM - levelH * (lv + 0.5);   // 위에서부터 1번(1-1)
         const glassMat = new THREE.MeshPhysicalMaterial({
           color: mapStatusColor(loc), transparent: true, opacity: 0.48, roughness: 0.15, metalness: 0.05, clearcoat: 0.5,
@@ -2182,16 +2199,17 @@
         plate.position.set(0, y - levelH / 2, 0);
         g.add(plate);
         // 앞면·뒷면 양쪽에 번호판(왼쪽 끝) — 보이는 면에만 보임
-        const front = mapLabelPlate(loc);
+        const plateTxt = rack.loc ? 'OPL' : loc;
+        const front = mapLabelPlate(plateTxt);
         front.position.set(-L / 2 + 0.25, y, D / 2 + 0.01);
         g.add(front);
-        const back = mapLabelPlate(loc);
+        const back = mapLabelPlate(plateTxt);
         back.rotation.y = Math.PI;
         back.position.set(L / 2 - 0.25, y, -D / 2 - 0.01);
         g.add(back);
       }
       // 랙 번호(꼭대기)
-      const head = mapLabelSprite('랙 ' + rack.id);
+      const head = mapLabelSprite(rack.name || ('랙 ' + rack.id));
       head.position.set(0, heightM + 0.25, 0);
       g.add(head);
       mapScene.add(g);
@@ -2216,24 +2234,44 @@
       mapScene.add(g);
     });
 
-    // 번호 없는 구역
+    // 바닥 물체(케이블처럼 loc가 있으면 클릭 가능)
     const zoneMat = new THREE.MeshStandardMaterial({ color: 0x8d99ae, transparent: true, opacity: 0.3, roughness: 0.8 });
     ZONES.forEach(z => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(z.w, z.h, z.d), zoneMat);
-      m.position.set(z.x, z.h / 2, z.z);
-      mapScene.add(m);
+      const mat = z.loc ? new THREE.MeshPhysicalMaterial({
+        color: mapStatusColor(z.loc), transparent: true, opacity: 0.48, roughness: 0.15, metalness: 0.05, clearcoat: 0.5,
+        emissive: 0xffe066, emissiveIntensity: 0 }) : zoneMat;
+      const g = new THREE.Group();
+      g.position.set(z.x, 0, z.z);
+      const m = new THREE.Mesh(new THREE.BoxGeometry(z.w, z.h, z.d), mat);
+      m.position.y = z.h / 2;
+      g.add(m);
+      if (z.loc) { m.userData = { loc: z.loc }; mapShelves.push(m); }
       const edge = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry),
         new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 }));
       edge.position.copy(m.position);
-      mapScene.add(edge);
+      g.add(edge);
       const lb = mapLabelSprite(z.name, 0.85);
-      lb.position.set(z.x, z.h + 0.2, z.z);
+      lb.position.set(0, z.h + 0.2, 0);
+      g.add(lb);
+      mapScene.add(g);
+    });
+
+    // 출입구 — 바닥에 초록 띠 + 라벨
+    DOORS.forEach(d => {
+      const w = d.x2 - d.x1;
+      const strip = new THREE.Mesh(new THREE.PlaneGeometry(w, 0.35),
+        new THREE.MeshBasicMaterial({ color: 0x2dbb6a, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }));
+      strip.rotation.x = -Math.PI / 2;
+      strip.position.set((d.x1 + d.x2) / 2, 0.02, d.z - 0.175);
+      mapScene.add(strip);
+      const lb = mapLabelSprite(d.name, 0.85);
+      lb.position.set((d.x1 + d.x2) / 2, 0.45, d.z);
       mapScene.add(lb);
     });
 
     mapControls = new THREE.OrbitControls(mapCamera, mapRenderer.domElement);
     mapControls.enableDamping = true; mapControls.dampingFactor = 0.08;
-    mapControls.minDistance = 1.5; mapControls.maxDistance = 22;
+    mapControls.minDistance = 1.5; mapControls.maxDistance = 36;
     mapControls.maxPolarAngle = Math.PI / 2 - 0.05;   // 바닥 아래로 돌아가지 않게
     mapControls.target.set(...MAP_TGT_HOME);
     mapControls.update();
@@ -2251,7 +2289,7 @@
       if (hits.length) {
         const loc = hits[0].object.userData.loc;
         if (isClick) { goToLocation(loc); return; }
-        tip.textContent = `${loc} · 품목 ${items.filter(i => i.location === loc).length}개`;
+        tip.textContent = `${loc} · 품목 ${items.filter(i => normMapLoc(i.location) === loc).length}개`;
         tip.style.left = (cx - rect.left) + 'px'; tip.style.top = (cy - rect.top) + 'px';
         tip.classList.add('on');
       } else tip.classList.remove('on');
@@ -2378,7 +2416,7 @@
       }
     }
     // 위치 칸을 눌렀는데 맵에 없는 위치(예: OPL렉)면 맵을 닫고 기존처럼 그 위치 목록을 보여 줌
-    if (!mapHighlightLoc && mapControls) { mapCamera.position.set(...MAP_CAM_HOME); mapControls.target.set(...MAP_TGT_HOME); mapControls.update(); }
+    if (!mapHighlightLoc && mapControls) { onMapResize(); mapGoHome(); }
     if (rawLoc && !found) {
       mapHighlightLoc = null;
       toast('위치 "' + rawLoc + '"는 3D 맵에 없는 위치예요.', true);
